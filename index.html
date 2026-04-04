@@ -125,12 +125,11 @@ function reducer(state,action){
       if(!templates[tKey]) templates[tKey]={gameKey:fin.gameKey,name:fin.gameName,gameName:fin.gameName,emoji:fin.emoji,categories:fin.categories};
       return{...state,screen:"home",current:null,history:[fin,...state.history],templates};
     }
-    case "DELETE_HISTORY":
+    case "DELETE_HISTORY": {
       const updated = state.history.filter(g=>g.id!==action.id);
-      if (state.family && sb) {
-        dbSave(state.family, updated).catch(()=>{});
-      }
+      if (state.family && sb) { dbSave(state.family, updated).catch(()=>{}); }
       return {...state, history: updated};
+    }
     case "SET_FAMILY":return{...state,family:action.family};
     case "SYNC_HISTORY":return{...state,history:action.history};
     case "SYNC_TEMPLATES":return{...state,templates:{...state.templates,...action.templates}};
