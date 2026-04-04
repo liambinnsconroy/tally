@@ -220,7 +220,7 @@ function HomeScreen({state,dispatch}){
   const top=[...lb].sort((a,b)=>(b.winRate*0.6+(b.games/maxG)*0.4)-(a.winRate*0.6+(a.games/maxG)*0.4))[0];
   return(
     <div style={{padding:"20px 20px 80px"}}>
-      <h1 style={{textAlign:"center",fontSize:34,margin:"24px 0 4px",fontFamily:"Georgia,serif",fontWeight:900,color:C.ink,letterSpacing:-1}}>🎲 Score Keeper</h1>
+      <h1 style={{textAlign:"center",fontSize:34,margin:"24px 0 4px",fontFamily:"Georgia,serif",fontWeight:900,color:C.ink,letterSpacing:-1}}>🎲 Scorekeeper</h1>
       {state.family&&<p style={{textAlign:"center",color:C.muted,fontSize:12,marginBottom:8}}>👨‍👩‍👧 <b style={{color:C.card}}>{state.family}</b></p>}
       <div style={{...S.limeCard,padding:"14px 18px",marginBottom:12,textAlign:"center"}}>
         <div onClick={()=>dispatch({type:"GO",screen:"setup"})} style={{cursor:"pointer"}}>
