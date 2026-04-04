@@ -1,171 +1,190 @@
-import { useState, useEffect, useReducer, useCallback } from "react";
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="theme-color" content="#1a1a2e"/>
+  <title>🎲 Score Keeper</title>
 
+  <!-- ═══════════════════════════════════════════════════════════════
+       SUPABASE CONFIG — replace these two values after setup
+       1. Go to supabase.com → New project
+       2. Settings → API → copy Project URL and anon public key
+  ════════════════════════════════════════════════════════════════ -->
+  <script>
+    // =====================================================
+    // STEP 1: REPLACE THESE TWO VALUES WITH YOUR SUPABASE CREDENTIALS
+    // =====================================================
+    var SUPABASE_URL  = "https://lijgbsxjatfzewogznwg.supabase.co";
+    var SUPABASE_ANON = "sb_publishable_Rll9McjZsM2fPYoYdXnMAA_j0Y37bHO";
+    // =====================================================
+  </script>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{background:#1a1a2e;color:#eee;font-family:'Segoe UI',sans-serif;min-height:100vh;}
+    input,button{font-family:inherit;}
+    input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;}
+    ::-webkit-scrollbar{width:4px;height:4px;}
+    ::-webkit-scrollbar-track{background:#0f3460;}
+    ::-webkit-scrollbar-thumb{background:#e94560;border-radius:2px;}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useReducer, useCallback, useRef } = React;
+
+// ── Supabase client ───────────────────────────────────────────────────────────
+let sb = null;
+try {
+  if (SUPABASE_URL !== "YOUR_SUPABASE_URL") {
+    sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+  }
+} catch(e) {}
+
+// Supabase helpers — table: family_games (id, family_code, games jsonb, updated_at)
+async function dbLoad(code) {
+  if (!sb) return null;
+  try {
+    const { data } = await sb.from("family_games").select("games").eq("family_code", code).single();
+    return data?.games || null;
+  } catch { return null; }
+}
+async function dbSave(code, games) {
+  if (!sb) return;
+  try {
+    await sb.from("family_games").upsert({ family_code: code, games, updated_at: new Date().toISOString() }, { onConflict: "family_code" });
+  } catch {}
+}
+
+// ── Constants ─────────────────────────────────────────────────────────────────
 const BUILT_IN_GAMES = {
   catan:    { name:"Catan",    emoji:"🏝️", categories:["Settlements","Cities","Longest Road","Largest Army","Dev Cards","Special VP"] },
   wingspan: { name:"Wingspan", emoji:"🐦", categories:["Birds","Bonus Cards","End-of-Round Goals","Eggs","Food on Cards","Tucked Cards"] },
   scrabble: { name:"Scrabble", emoji:"🔡", categories:["Round 1","Round 2","Round 3","Round 4","Round 5","Round 6","Round 7","Round 8","Tile Penalty"] },
   custom:   { name:"Custom",   emoji:"🎲", categories:[] },
 };
-
 const TEAM_COLORS = ["#e94560","#3498db","#2ecc71","#f39c12"];
 const TEAM_EMOJIS  = ["🔴","🔵","🟢","🟡"];
 
-// ── Storage ───────────────────────────────────────────────────────────────────
+// ── Local storage ─────────────────────────────────────────────────────────────
 function localLoad() { try { return JSON.parse(localStorage.getItem("bgs_v2")||"null"); } catch { return null; } }
 function localSave(s) { try { localStorage.setItem("bgs_v2", JSON.stringify(s)); } catch {} }
-async function familyLoad(pw) { try { const r = await window.storage.get(`family:${pw}`,true); return r?JSON.parse(r.value):null; } catch { return null; } }
-async function familySave(pw,data) { try { await window.storage.set(`family:${pw}`,JSON.stringify(data),true); } catch {} }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const calcTotal = p => p?.scores ? Object.values(p.scores).reduce((s,v)=>s+(parseInt(v)||0),0) : 0;
 
 function buildLeaderboard(history) {
   const players = {};
-
   history.forEach(game => {
     if (!game.finished) return;
-
-    // Resolve the real individual players for this game.
-    // Old saved games in team mode stored team names as players — fix that here.
     let individuals = game.players;
     if (game.teamMode && game.teams) {
-      const allMemberNames = game.teams.flatMap(t => t.members);
-      const storedNames = game.players.map(p => p.name);
-      const hasTeamNames = storedNames.some(n => !allMemberNames.includes(n));
+      const allMemberNames = game.teams.flatMap(t=>t.members);
+      const hasTeamNames = game.players.some(p=>!allMemberNames.includes(p.name));
       if (hasTeamNames) {
-        // Old format: players are team names. Redistribute scores to members.
         individuals = game.teams.flatMap(team => {
-          const teamPlayer = game.players.find(p => p.name === team.name);
-          const size = Math.max(1, team.members.length);
-          return team.members.map(memberName => ({
-            name: memberName,
-            team: team.name,
-            scores: teamPlayer
-              ? Object.fromEntries(Object.entries(teamPlayer.scores).map(([k,v]) => [k, String(Math.round((parseInt(v)||0)/size))]))
-              : {},
-          }));
+          const tp = game.players.find(p=>p.name===team.name);
+          const sz = Math.max(1,team.members.length);
+          return team.members.map(n=>({ name:n, team:team.name,
+            scores: tp ? Object.fromEntries(Object.entries(tp.scores).map(([k,v])=>[k,String(Math.round((parseInt(v)||0)/sz))])) : {} }));
         });
       }
     }
-
-    // Team totals for win calculation
     const teamTotals = {};
     if (game.teamMode && game.teams) {
       game.teams.forEach(team => {
-        const members = individuals.filter(p => team.members.includes(p.name));
-        teamTotals[team.name] = members.reduce((s,p) => s + calcTotal(p), 0);
+        const mems = individuals.filter(p=>team.members.includes(p.name));
+        teamTotals[team.name] = mems.reduce((s,p)=>s+calcTotal(p),0);
       });
     }
     const maxTotal = game.teamMode && game.teams
-      ? Math.max(...Object.values(teamTotals), 0)
-      : Math.max(...individuals.map(calcTotal), 0);
-
+      ? Math.max(...Object.values(teamTotals),0)
+      : Math.max(...individuals.map(calcTotal),0);
     individuals.forEach(p => {
-      if (!players[p.name]) players[p.name] = { name:p.name, wins:0, games:0, totalScore:0 };
-      const teamSize = game.teamMode && game.teams
-        ? Math.max(1, (game.teams.find(t => t.members.includes(p.name))?.members.length || 1))
-        : 1;
-      const teamName = game.teamMode && game.teams
-        ? game.teams.find(t => t.members.includes(p.name))?.name
-        : null;
+      if (!players[p.name]) players[p.name]={name:p.name,wins:0,games:0,totalScore:0};
+      const teamSize = game.teamMode&&game.teams ? Math.max(1,game.teams.find(t=>t.members.includes(p.name))?.members.length||1) : 1;
+      const teamName = game.teamMode&&game.teams ? game.teams.find(t=>t.members.includes(p.name))?.name : null;
       const teamTotal = teamName ? teamTotals[teamName] : calcTotal(p);
-
       players[p.name].games += 1;
-      players[p.name].totalScore += Math.round(teamTotal / teamSize);
-      const isWinner = teamName ? teamTotal === maxTotal : calcTotal(p) === maxTotal;
-      if (isWinner) players[p.name].wins += 1 / teamSize;
+      players[p.name].totalScore += Math.round(teamTotal/teamSize);
+      if ((teamName ? teamTotal===maxTotal : calcTotal(p)===maxTotal)) players[p.name].wins += 1/teamSize;
     });
   });
-
-  return Object.values(players).map(p => ({
-    ...p,
-    wins: Math.round(p.wins * 100) / 100,
-    winRate: p.games > 0 ? p.wins / p.games : 0,
-    avgScore: p.games > 0 ? Math.round(p.totalScore / p.games) : 0,
-  }));
+  return Object.values(players).map(p=>({ ...p, wins:Math.round(p.wins*100)/100, winRate:p.games>0?p.wins/p.games:0, avgScore:p.games>0?Math.round(p.totalScore/p.games):0 }));
 }
 
 function newGame(gameKey, playerNames, cats, customName, customEmoji, teamMode, teams) {
-  const def = BUILT_IN_GAMES[gameKey] || { name:customName, emoji:customEmoji||"🎲", categories:cats };
-  const categories = gameKey==="custom" ? cats : def.categories;
-  const emoji = gameKey==="custom" ? (customEmoji||"🎲") : def.emoji;
-  // In team mode, players are the individual members (not team names)
-  const players = teamMode && teams
-    ? teams.flatMap(team =>
-        team.members.map(name => ({ name, scores:Object.fromEntries(categories.map(c=>[c,""])), team:team.name }))
-      )
-    : playerNames.map(n => ({ name:n, scores:Object.fromEntries(categories.map(c=>[c,""])) }));
-  return {
-    id: Date.now(),
-    gameKey, gameName: gameKey==="custom"?(customName||"Custom Game"):def.name,
-    emoji, categories, players,
-    teamMode:!!teamMode, teams: teamMode?teams:null,
-    startedAt: new Date().toISOString(), finished:false,
-  };
+  const def = BUILT_IN_GAMES[gameKey]||{name:customName,emoji:customEmoji||"🎲",categories:cats};
+  const categories = gameKey==="custom"?cats:def.categories;
+  const emoji = gameKey==="custom"?(customEmoji||"🎲"):def.emoji;
+  const players = teamMode&&teams
+    ? teams.flatMap(team=>team.members.map(n=>({name:n,scores:Object.fromEntries(categories.map(c=>[c,""])),team:team.name})))
+    : playerNames.map(n=>({name:n,scores:Object.fromEntries(categories.map(c=>[c,""]))}));
+  return { id:Date.now(), gameKey, gameName:gameKey==="custom"?(customName||"Custom Game"):def.name, emoji, categories, players, teamMode:!!teamMode, teams:teamMode?teams:null, startedAt:new Date().toISOString(), finished:false };
 }
 
 // ── Reducer ───────────────────────────────────────────────────────────────────
 const INIT = { screen:"home", history:[], templates:{}, current:null, family:null, detailId:null };
-
 function reducer(state, action) {
   switch(action.type) {
     case "HYDRATE": return {...state,...action.payload};
-    case "GO": return {...state, screen:action.screen, detailId:action.id??state.detailId};
-    case "START_GAME": return {...state, screen:"game", current:newGame(action.gameKey,action.players,action.cats,action.customName,action.customEmoji,action.teamMode,action.teams)};
-    case "SET_SCORE": {
-      const cur={...state.current};
-      cur.players=cur.players.map((p,pi)=>pi===action.pi?{...p,scores:{...p.scores,[action.cat]:action.val}}:p);
-      return {...state,current:cur};
-    }
-    case "ADD_CATEGORY": {
-      const cur={...state.current};
-      cur.categories=[...cur.categories,action.cat];
-      cur.players=cur.players.map(p=>({...p,scores:{...p.scores,[action.cat]:""}}));
-      return {...state,current:cur};
-    }
+    case "GO": return {...state,screen:action.screen,detailId:action.id??state.detailId};
+    case "START_GAME": return {...state,screen:"game",current:newGame(action.gameKey,action.players,action.cats,action.customName,action.customEmoji,action.teamMode,action.teams)};
+    case "SET_SCORE": { const c={...state.current}; c.players=c.players.map((p,pi)=>pi===action.pi?{...p,scores:{...p.scores,[action.cat]:action.val}}:p); return {...state,current:c}; }
+    case "ADD_CATEGORY": { const c={...state.current}; c.categories=[...c.categories,action.cat]; c.players=c.players.map(p=>({...p,scores:{...p.scores,[action.cat]:""}})); return {...state,current:c}; }
     case "FINISH": {
-      const finished={...state.current,finished:true,finishedAt:new Date().toISOString()};
-      const tKey=finished.gameKey==="custom"?finished.gameName:finished.gameKey;
+      const fin={...state.current,finished:true,finishedAt:new Date().toISOString()};
+      const tKey=fin.gameKey==="custom"?fin.gameName:fin.gameKey;
       const templates={...state.templates};
-      if(!templates[tKey]) templates[tKey]={gameKey:finished.gameKey,name:finished.gameName,gameName:finished.gameName,emoji:finished.emoji,categories:finished.categories};
-      return {...state,screen:"home",current:null,history:[finished,...state.history],templates};
+      if(!templates[tKey]) templates[tKey]={gameKey:fin.gameKey,name:fin.gameName,gameName:fin.gameName,emoji:fin.emoji,categories:fin.categories};
+      return {...state,screen:"home",current:null,history:[fin,...state.history],templates};
     }
     case "DELETE_HISTORY": return {...state,history:state.history.filter(g=>g.id!==action.id)};
     case "SET_FAMILY": return {...state,family:action.family};
-    case "SYNC_FAMILY_HISTORY": return {...state,history:action.history};
+    case "SYNC_HISTORY": return {...state,history:action.history};
     default: return state;
   }
 }
 
-// ── App Root ──────────────────────────────────────────────────────────────────
-export default function App() {
+// ── App ───────────────────────────────────────────────────────────────────────
+function App() {
   const [state, dispatch] = useReducer(reducer, INIT);
-  const [familySyncing, setFamilySyncing] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(()=>{ const s=localLoad(); if(s) dispatch({type:"HYDRATE",payload:s}); },[]);
   useEffect(()=>{ localSave({history:state.history,templates:state.templates,family:state.family,current:state.current}); },[state.history,state.templates,state.family,state.current]);
 
   useEffect(()=>{
-    if(!state.family) return;
-    (async()=>{ setFamilySyncing(true); const d=await familyLoad(state.family); if(d?.history) dispatch({type:"SYNC_FAMILY_HISTORY",history:d.history}); setFamilySyncing(false); })();
+    if(!state.family||!sb) return;
+    (async()=>{ setSyncing(true); const games=await dbLoad(state.family); if(games) dispatch({type:"SYNC_HISTORY",history:games}); setSyncing(false); })();
   },[state.family,state.screen]);
 
   const finishGame = useCallback(async()=>{
     dispatch({type:"FINISH"});
-    if(state.family&&state.current){
-      const finished={...state.current,finished:true,finishedAt:new Date().toISOString()};
-      const data=await familyLoad(state.family)||{history:[]};
-      data.history=[finished,...data.history.filter(g=>g.id!==finished.id)];
-      await familySave(state.family,data);
+    if(state.family&&sb&&state.current){
+      const fin={...state.current,finished:true,finishedAt:new Date().toISOString()};
+      const existing=await dbLoad(state.family)||[];
+      const merged=[fin,...existing.filter(g=>g.id!==fin.id)];
+      await dbSave(state.family,merged);
     }
   },[state.family,state.current]);
 
   const screens={home:HomeScreen,setup:SetupScreen,game:GameScreen,history:HistoryScreen,historyDetail:HistoryDetail,leaderboard:LeaderboardScreen,family:FamilyScreen};
   const Screen=screens[state.screen]||HomeScreen;
-
   return (
     <div style={{maxWidth:480,margin:"0 auto",minHeight:"100vh",background:"#1a1a2e",color:"#eee",fontFamily:"'Segoe UI',sans-serif"}}>
-      {familySyncing&&<div style={{background:"#e94560",color:"#fff",textAlign:"center",fontSize:12,padding:"4px 0"}}>Syncing…</div>}
+      {syncing&&<div style={{background:"#e94560",color:"#fff",textAlign:"center",fontSize:12,padding:"4px 0"}}>Syncing…</div>}
+      {!sb&&<div style={{background:"#333",color:"#f0c060",textAlign:"center",fontSize:11,padding:"4px 8px"}}>⚠️ Supabase not configured — family sync disabled</div>}
       <Screen state={state} dispatch={dispatch} finishGame={finishGame}/>
       <BottomNav screen={state.screen} dispatch={dispatch} state={state}/>
     </div>
@@ -175,10 +194,9 @@ export default function App() {
 // ── Bottom Nav ────────────────────────────────────────────────────────────────
 function BottomNav({screen,dispatch,state}) {
   const tabs=[{id:"home",label:"Home",icon:"🏠"},{id:"leaderboard",label:"Board",icon:"🏆"},{id:"history",label:"History",icon:"📋"},{id:"family",label:"Family",icon:"👨‍👩‍👧"}];
-  const hasGame=!!state.current;
   return (
     <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"#16213e",borderTop:"1px solid #0f3460",display:"flex"}}>
-      {hasGame&&screen!=="game"&&(
+      {!!state.current&&screen!=="game"&&(
         <button onClick={()=>dispatch({type:"GO",screen:"game"})}
           style={{position:"absolute",top:-44,left:"50%",transform:"translateX(-50%)",background:"#e94560",border:"none",color:"#fff",borderRadius:20,padding:"8px 20px",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",boxShadow:"0 2px 12px rgba(233,69,96,0.5)"}}>
           ▶ Resume Game
@@ -197,11 +215,12 @@ function BottomNav({screen,dispatch,state}) {
 // ── Home ──────────────────────────────────────────────────────────────────────
 function HomeScreen({state,dispatch}) {
   const lb=buildLeaderboard(state.history);
-  const top=[...lb].sort((a,b)=>b.winRate-a.winRate)[0];
+  const maxG=Math.max(...lb.map(p=>p.games),1);
+  const top=[...lb].sort((a,b)=>(b.winRate*0.6+(b.games/maxG)*0.4)-(a.winRate*0.6+(a.games/maxG)*0.4))[0];
   return (
     <div style={{padding:"20px 20px 80px"}}>
       <h1 style={{textAlign:"center",fontSize:26,margin:"24px 0 4px",color:"#f0c060"}}>🎲 Score Keeper</h1>
-      {state.family&&<p style={{textAlign:"center",color:"#aaa",fontSize:13,marginBottom:8}}>👨‍👩‍👧 Family: <b style={{color:"#f0c060"}}>{state.family}</b></p>}
+      {state.family&&<p style={{textAlign:"center",color:"#aaa",fontSize:13,marginBottom:8}}>👨‍👩‍👧 <b style={{color:"#f0c060"}}>{state.family}</b></p>}
       {top&&(
         <div style={{background:"linear-gradient(135deg,#e94560,#f0c060)",borderRadius:14,padding:"14px 18px",marginBottom:20,textAlign:"center"}}>
           <div style={{fontSize:12,opacity:0.85,marginBottom:2}}>⭐ TOP PLAYER</div>
@@ -221,54 +240,30 @@ function HomeScreen({state,dispatch}) {
 // ── Setup ─────────────────────────────────────────────────────────────────────
 function SetupScreen({state,dispatch}) {
   const EMOJI_OPTS=["🎲","🃏","♟","🎯","🧩","🎮","🏆","🌍","🐉","🚂","🏰","🌿","⚔","🔮","🎪","🦁","🚀","🍀","🎠","💎"];
+  const [gameKey,setGameKey]=useState(null);
+  const [cats,setCats]=useState([""]);
+  const [custName,setCustName]=useState("");
+  const [custEmoji,setCustEmoji]=useState("🎲");
+  const [showPick,setShowPick]=useState(false);
+  const [teamMode,setTeamMode]=useState(false);
+  const [numTeams,setNumTeams]=useState(2);
+  const [teams,setTeams]=useState([{name:"Team 1",members:[]},{name:"Team 2",members:[]},{name:"Team 3",members:[]},{name:"Team 4",members:[]}]);
+  const [solo,setSolo]=useState([]);
+  const [newName,setNewName]=useState("");
 
-  const [gameKey,  setGameKey]  = useState(null);
-  const [cats,     setCats]     = useState([""]);
-  const [custName, setCustName] = useState("");
-  const [custEmoji,setCustEmoji]= useState("🎲");
-  const [showPick, setShowPick] = useState(false);
-  const [teamMode, setTeamMode] = useState(false);
-  const [numTeams, setNumTeams] = useState(2);
-  const [teams,    setTeams]    = useState([{name:"Team 1",members:[]},{name:"Team 2",members:[]},{name:"Team 3",members:[]},{name:"Team 4",members:[]}]);
-  const [solo,     setSolo]     = useState([]);
-  const [newName,  setNewName]  = useState("");
-
-  // Build sorted game list
   const lastPlayed={};
   state.history.forEach(g=>{ const k=g.gameKey==="custom"?g.gameName:g.gameKey; if(!lastPlayed[k]) lastPlayed[k]=g.finishedAt||g.startedAt; });
   const allGames={...BUILT_IN_GAMES};
   Object.entries(state.templates||{}).forEach(([k,t])=>{ allGames[k]={...t,name:t.name||t.gameName||k}; });
-  const gameList=Object.entries(allGames).sort(([ka],[kb])=>{
-    const ta=lastPlayed[ka]||null,tb=lastPlayed[kb]||null;
-    if(ta&&tb) return new Date(tb)-new Date(ta); if(ta) return -1; if(tb) return 1; return 0;
-  });
+  const gameList=Object.entries(allGames).sort(([ka],[kb])=>{ const ta=lastPlayed[ka]||null,tb=lastPlayed[kb]||null; if(ta&&tb) return new Date(tb)-new Date(ta); if(ta) return -1; if(tb) return 1; return 0; });
 
-  // Known players pool
   const knownPlayers=[...new Set(state.history.flatMap(g=>g.teams?g.teams.flatMap(t=>t.members):g.players.map(p=>p.name)))];
   const allPool=[...new Set([...knownPlayers,...teams.flatMap(t=>t.members),...solo])];
 
-  function pickGame(k) {
-    setGameKey(k);
-    setCats(k!=="custom"&&allGames[k]?.categories ? allGames[k].categories : [""]);
-    setCustEmoji(allGames[k]?.emoji||"🎲");
-  }
-
-  function toggleSolo(n) { setSolo(p=>p.includes(n)?p.filter(x=>x!==n):[...p,n]); }
-
-  function assignTeam(name,ti) {
-    setTeams(prev=>prev.map((t,i)=>{
-      if(i===ti) return t.members.includes(name)?{...t,members:t.members.filter(m=>m!==name)}:{...t,members:[...t.members,name]};
-      return {...t,members:t.members.filter(m=>m!==name)};
-    }));
-  }
-
-  function addNew() {
-    const n=newName.trim(); if(!n) return; setNewName("");
-    if(teamMode){
-      const ti=teams.slice(0,numTeams).reduce((mi,t,i,arr)=>t.members.length<arr[mi].members.length?i:mi,0);
-      setTeams(prev=>prev.map((t,i)=>i===ti?{...t,members:[...t.members,n]}:t));
-    } else { setSolo(p=>p.includes(n)?p:[...p,n]); }
-  }
+  function pickGame(k){ setGameKey(k); setCats(k!=="custom"&&allGames[k]?.categories?allGames[k].categories:[""]); setCustEmoji(allGames[k]?.emoji||"🎲"); }
+  function toggleSolo(n){ setSolo(p=>p.includes(n)?p.filter(x=>x!==n):[...p,n]); }
+  function assignTeam(name,ti){ setTeams(prev=>prev.map((t,i)=>{ if(i===ti) return t.members.includes(name)?{...t,members:t.members.filter(m=>m!==name)}:{...t,members:[...t.members,name]}; return {...t,members:t.members.filter(m=>m!==name)}; })); }
+  function addNew(){ const n=newName.trim(); if(!n) return; setNewName(""); if(teamMode){ const ti=teams.slice(0,numTeams).reduce((mi,t,i,arr)=>t.members.length<arr[mi].members.length?i:mi,0); setTeams(prev=>prev.map((t,i)=>i===ti?{...t,members:[...t.members,n]}:t)); } else { setSolo(p=>p.includes(n)?p:[...p,n]); } }
 
   const activeTeams=teams.slice(0,numTeams).filter(t=>t.members.length>0);
   const validCats=cats.filter(c=>c.trim());
@@ -277,26 +272,19 @@ function SetupScreen({state,dispatch}) {
   return (
     <div style={{padding:"20px 20px 100px"}}>
       <TopBar title="New Game" onBack={()=>dispatch({type:"GO",screen:"home"})}/>
-
-      {/* STEP 1 — GAME */}
       <h3 style={secHead}>Choose Game</h3>
       <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:24}}>
         {gameList.map(([k,g])=>(
-          <div key={k} onClick={()=>pickGame(k)}
-            style={{background:gameKey===k?"#e94560":"#16213e",borderRadius:12,padding:"12px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
+          <div key={k} onClick={()=>pickGame(k)} style={{background:gameKey===k?"#e94560":"#16213e",borderRadius:12,padding:"12px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
             <span style={{fontSize:26}}>{g.emoji}</span>
             <div style={{flex:1}}>
               <div style={{fontSize:15,fontWeight:gameKey===k?700:400}}>{g.name}</div>
-              <div style={{fontSize:12,color:gameKey===k?"rgba(255,255,255,0.7)":"#555",marginTop:2}}>
-                {lastPlayed[k]?`Last played ${new Date(lastPlayed[k]).toLocaleDateString()}`:"Not played yet"}
-              </div>
+              <div style={{fontSize:12,color:gameKey===k?"rgba(255,255,255,0.7)":"#555",marginTop:2}}>{lastPlayed[k]?`Last played ${new Date(lastPlayed[k]).toLocaleDateString()}`:"Not played yet"}</div>
             </div>
             {gameKey===k&&<span>✓</span>}
           </div>
         ))}
       </div>
-
-      {/* Custom game config */}
       {gameKey==="custom"&&(
         <div style={{background:"#16213e",borderRadius:14,padding:16,marginBottom:24}}>
           <h3 style={{...secHead,marginBottom:10}}>Custom Game</h3>
@@ -304,115 +292,43 @@ function SetupScreen({state,dispatch}) {
             <button onClick={()=>setShowPick(p=>!p)} style={{fontSize:24,background:"#0f3460",border:"none",borderRadius:10,padding:"10px 12px",cursor:"pointer"}}>{custEmoji}</button>
             <input style={{...inp,flex:1}} placeholder="Game name" value={custName} onChange={e=>setCustName(e.target.value)}/>
           </div>
-          {showPick&&(
-            <div style={{display:"flex",flexWrap:"wrap",gap:6,background:"#0f3460",borderRadius:10,padding:10,marginBottom:10}}>
-              {EMOJI_OPTS.map(e=><button key={e} onClick={()=>{setCustEmoji(e);setShowPick(false);}} style={{fontSize:22,background:custEmoji===e?"#e94560":"transparent",border:"none",borderRadius:6,padding:"4px 6px",cursor:"pointer"}}>{e}</button>)}
-            </div>
-          )}
+          {showPick&&<div style={{display:"flex",flexWrap:"wrap",gap:6,background:"#0f3460",borderRadius:10,padding:10,marginBottom:10}}>{EMOJI_OPTS.map(e=><button key={e} onClick={()=>{setCustEmoji(e);setShowPick(false);}} style={{fontSize:22,background:custEmoji===e?"#e94560":"transparent",border:"none",borderRadius:6,padding:"4px 6px",cursor:"pointer"}}>{e}</button>)}</div>}
           <h3 style={{...secHead,marginTop:12,marginBottom:8}}>Score Categories</h3>
           {cats.map((c,i)=><input key={i} style={{...inp,marginBottom:8}} placeholder={`Category ${i+1}`} value={c} onChange={e=>setCats(cats.map((x,j)=>j===i?e.target.value:x))}/>)}
           <Btn onClick={()=>setCats(c=>[...c,""])}>+ Add Category</Btn>
         </div>
       )}
-
-      {/* STEP 2 — MODE */}
       <h3 style={secHead}>Mode</h3>
       <div style={{display:"flex",gap:10,marginBottom:24}}>
-        <button onClick={()=>setTeamMode(false)}
-          style={{flex:1,padding:"14px 0",fontSize:15,fontWeight:!teamMode?700:400,background:!teamMode?"#e94560":"#16213e",color:"#fff",border:"none",borderRadius:12,cursor:"pointer"}}>
-          👤 Individual
-        </button>
-        <button onClick={()=>setTeamMode(true)}
-          style={{flex:1,padding:"14px 0",fontSize:15,fontWeight:teamMode?700:400,background:teamMode?"#e94560":"#16213e",color:"#fff",border:"none",borderRadius:12,cursor:"pointer"}}>
-          👥 Team Mode
-        </button>
+        <button onClick={()=>setTeamMode(false)} style={{flex:1,padding:"14px 0",fontSize:15,fontWeight:!teamMode?700:400,background:!teamMode?"#e94560":"#16213e",color:"#fff",border:"none",borderRadius:12,cursor:"pointer"}}>👤 Individual</button>
+        <button onClick={()=>setTeamMode(true)}  style={{flex:1,padding:"14px 0",fontSize:15,fontWeight:teamMode?700:400, background:teamMode?"#e94560":"#16213e", color:"#fff",border:"none",borderRadius:12,cursor:"pointer"}}>👥 Team Mode</button>
       </div>
-
-      {/* STEP 3A — SOLO PLAYERS */}
       {!teamMode&&(
         <div style={{background:"#16213e",borderRadius:14,padding:16,marginBottom:24}}>
           <h3 style={{...secHead,marginBottom:12}}>Select Players</h3>
-          {allPool.length>0&&(
-            <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12}}>
-              {allPool.map(n=>(
-                <button key={n} onClick={()=>toggleSolo(n)}
-                  style={{background:solo.includes(n)?"#e94560":"#0f3460",border:"none",color:"#fff",borderRadius:20,padding:"7px 16px",fontSize:14,cursor:"pointer"}}>
-                  {solo.includes(n)?"✓ ":""}{n}
-                </button>
-              ))}
-            </div>
-          )}
-          <div style={{display:"flex",gap:8}}>
-            <input style={{...inp,flex:1}} placeholder="Add new player…" value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addNew()}/>
-            <Btn primary onClick={addNew}>Add</Btn>
-          </div>
+          {allPool.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12}}>{allPool.map(n=><button key={n} onClick={()=>toggleSolo(n)} style={{background:solo.includes(n)?"#e94560":"#0f3460",border:"none",color:"#fff",borderRadius:20,padding:"7px 16px",fontSize:14,cursor:"pointer"}}>{solo.includes(n)?"✓ ":""}{n}</button>)}</div>}
+          <div style={{display:"flex",gap:8}}><input style={{...inp,flex:1}} placeholder="Add new player…" value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addNew()}/><Btn primary onClick={addNew}>Add</Btn></div>
         </div>
       )}
-
-      {/* STEP 3B — TEAM MODE */}
       {teamMode&&(
         <div style={{background:"#16213e",borderRadius:14,padding:16,marginBottom:24}}>
           <h3 style={{...secHead,marginBottom:10}}>Number of Teams</h3>
-          <div style={{display:"flex",gap:8,marginBottom:20}}>
-            {[2,3,4].map(n=>(
-              <button key={n} onClick={()=>setNumTeams(n)}
-                style={{flex:1,padding:"10px 0",fontSize:15,fontWeight:numTeams===n?700:400,background:numTeams===n?"#e94560":"#0f3460",color:"#fff",border:"none",borderRadius:10,cursor:"pointer"}}>
-                {n} Teams
-              </button>
-            ))}
-          </div>
-
+          <div style={{display:"flex",gap:8,marginBottom:20}}>{[2,3,4].map(n=><button key={n} onClick={()=>setNumTeams(n)} style={{flex:1,padding:"10px 0",fontSize:15,fontWeight:numTeams===n?700:400,background:numTeams===n?"#e94560":"#0f3460",color:"#fff",border:"none",borderRadius:10,cursor:"pointer"}}>{n} Teams</button>)}</div>
           <h3 style={{...secHead,marginBottom:10}}>Team Names</h3>
-          {teams.slice(0,numTeams).map((t,i)=>(
-            <div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-              <span style={{fontSize:20}}>{TEAM_EMOJIS[i]}</span>
-              <input style={{...inp,flex:1,borderColor:TEAM_COLORS[i]}} value={t.name}
-                onChange={e=>setTeams(prev=>prev.map((x,j)=>j===i?{...x,name:e.target.value}:x))}/>
-            </div>
-          ))}
-
-          <h3 style={{...secHead,marginTop:20,marginBottom:10}}>Assign Players to Teams</h3>
+          {teams.slice(0,numTeams).map((t,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}><span style={{fontSize:20}}>{TEAM_EMOJIS[i]}</span><input style={{...inp,flex:1,borderColor:TEAM_COLORS[i]}} value={t.name} onChange={e=>setTeams(prev=>prev.map((x,j)=>j===i?{...x,name:e.target.value}:x))}/></div>)}
+          <h3 style={{...secHead,marginTop:20,marginBottom:10}}>Assign Players</h3>
           {allPool.length===0&&<p style={{color:"#555",fontSize:13,marginBottom:8}}>Add players below to assign them.</p>}
-          {allPool.map(name=>{
-            const ti=teams.slice(0,numTeams).findIndex(t=>t.members.includes(name));
-            return (
-              <div key={name} style={{display:"flex",alignItems:"center",gap:8,background:"#0f3460",borderRadius:10,padding:"10px 12px",marginBottom:8}}>
-                <span style={{flex:1,fontSize:14}}>{name}</span>
-                <div style={{display:"flex",gap:6}}>
-                  {teams.slice(0,numTeams).map((t,i)=>(
-                    <button key={i} onClick={()=>assignTeam(name,i)}
-                      style={{width:34,height:34,borderRadius:8,border:`2px solid ${ti===i?TEAM_COLORS[i]:"transparent"}`,background:ti===i?TEAM_COLORS[i]+"55":"#1a1a2e",color:"#fff",fontSize:16,cursor:"pointer"}}>
-                      {TEAM_EMOJIS[i]}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-
-          <div style={{display:"flex",gap:8,marginTop:12}}>
-            <input style={{...inp,flex:1}} placeholder="Add new player…" value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addNew()}/>
-            <Btn primary onClick={addNew}>Add</Btn>
-          </div>
-
-          <div style={{marginTop:16}}>
-            {teams.slice(0,numTeams).map((t,i)=>(
-              <div key={i} style={{borderLeft:`3px solid ${TEAM_COLORS[i]}`,paddingLeft:12,marginBottom:8}}>
-                <span style={{fontWeight:700,color:TEAM_COLORS[i]}}>{TEAM_EMOJIS[i]} {t.name}</span>
-                <span style={{color:"#aaa",fontSize:13,marginLeft:8}}>{t.members.length?t.members.join(", "):"Empty"}</span>
-              </div>
-            ))}
-          </div>
+          {allPool.map(name=>{ const ti=teams.slice(0,numTeams).findIndex(t=>t.members.includes(name)); return (
+            <div key={name} style={{display:"flex",alignItems:"center",gap:8,background:"#0f3460",borderRadius:10,padding:"10px 12px",marginBottom:8}}>
+              <span style={{flex:1,fontSize:14}}>{name}</span>
+              <div style={{display:"flex",gap:6}}>{teams.slice(0,numTeams).map((t,i)=><button key={i} onClick={()=>assignTeam(name,i)} style={{width:34,height:34,borderRadius:8,border:`2px solid ${ti===i?TEAM_COLORS[i]:"transparent"}`,background:ti===i?TEAM_COLORS[i]+"55":"#1a1a2e",color:"#fff",fontSize:16,cursor:"pointer"}}>{TEAM_EMOJIS[i]}</button>)}</div>
+            </div>
+          );})}
+          <div style={{display:"flex",gap:8,marginTop:12}}><input style={{...inp,flex:1}} placeholder="Add new player…" value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addNew()}/><Btn primary onClick={addNew}>Add</Btn></div>
+          <div style={{marginTop:16}}>{teams.slice(0,numTeams).map((t,i)=><div key={i} style={{borderLeft:`3px solid ${TEAM_COLORS[i]}`,paddingLeft:12,marginBottom:8}}><span style={{fontWeight:700,color:TEAM_COLORS[i]}}>{TEAM_EMOJIS[i]} {t.name}</span><span style={{color:"#aaa",fontSize:13,marginLeft:8}}>{t.members.length?t.members.join(", "):"Empty"}</span></div>)}</div>
         </div>
       )}
-
-      <Btn full primary disabled={!canStart}
-        onClick={()=>dispatch({type:"START_GAME",gameKey,
-          players:teamMode?teams.slice(0,numTeams).map(t=>t.name):solo,
-          cats:validCats,customName:custName,customEmoji:custEmoji,teamMode,
-          teams:teamMode?teams.slice(0,numTeams):null})}>
-        Start Game →
-      </Btn>
+      <Btn full primary disabled={!canStart} onClick={()=>dispatch({type:"START_GAME",gameKey,players:teamMode?teams.slice(0,numTeams).map(t=>t.name):solo,cats:validCats,customName:custName,customEmoji:custEmoji,teamMode,teams:teamMode?teams.slice(0,numTeams):null})}>Start Game →</Btn>
     </div>
   );
 }
@@ -426,95 +342,49 @@ function GameScreen({state,dispatch,finishGame}) {
   const [dumbPi,setDumbPi]=useState(null);
   const [dumbCat,setDumbCat]=useState(null);
   if(!game) return null;
-
-  // Build display scores — in team mode, group by team for the leaderboard
-  const playerTotals = game.players.map(calcTotal);
-  const maxTotal = Math.max(...playerTotals, 1);
-
-  const leaderboardRows = game.teamMode && game.teams
-    ? game.teams.map(team => {
-        const members = game.players.filter(p => team.members.includes(p.name));
-        const teamTotal = members.reduce((s, p) => s + calcTotal(p), 0);
-        return { label: team.name, sub: team.members.join(", "), total: teamTotal, isTeam: true };
-      }).sort((a,b) => b.total - a.total)
-    : [...game.players].map((p,i) => ({ label:p.name, sub:null, total:playerTotals[i], isTeam:false }))
-        .sort((a,b) => b.total - a.total);
-
-  const maxLeaderTotal = Math.max(...leaderboardRows.map(r=>r.total), 1);
-
-  function teamColor(name) {
-    if(!game.teamMode||!game.teams) return null;
-    const i=game.teams.findIndex(t=>t.members.includes(name));
-    return i>=0?TEAM_COLORS[i]:null;
-  }
-  function teamOf(name) {
-    if(!game.teamMode||!game.teams) return null;
-    return game.teams.find(t=>t.members.includes(name));
-  }
-
+  const playerTotals=game.players.map(calcTotal);
+  const leaderboardRows=game.teamMode&&game.teams
+    ? game.teams.map(team=>{ const mems=game.players.filter(p=>team.members.includes(p.name)); const total=mems.reduce((s,p)=>s+calcTotal(p),0); return {label:team.name,sub:team.members.join(", "),total}; }).sort((a,b)=>b.total-a.total)
+    : [...game.players].map((p,i)=>({label:p.name,sub:null,total:playerTotals[i]})).sort((a,b)=>b.total-a.total);
+  const maxLeaderTotal=Math.max(...leaderboardRows.map(r=>r.total),1);
+  function teamColor(name){ if(!game.teamMode||!game.teams) return null; const i=game.teams.findIndex(t=>t.members.includes(name)); return i>=0?TEAM_COLORS[i]:null; }
   return (
     <div style={{padding:"20px 20px 120px"}}>
       <TopBar title={`${game.emoji} ${game.gameName}`} onBack={()=>dispatch({type:"GO",screen:"home"})}/>
-
       <div style={{background:"#16213e",borderRadius:12,padding:16,marginBottom:20}}>
         <div style={{fontSize:11,color:"#aaa",textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>Live Scores</div>
-        {leaderboardRows.map(({label,sub,total},ri) => {
-          const tc = game.teamMode && game.teams
-            ? TEAM_COLORS[game.teams.findIndex(t=>t.name===label)] : null;
-          return (
-            <div key={label} style={{marginBottom:10}}>
-              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                <span>
-                  {ri===0?"🏆 ":""}
-                  <span style={{color:tc||"#eee",fontWeight:600}}>{label}</span>
-                  {sub&&<span style={{fontSize:11,color:"#aaa",marginLeft:6}}>({sub})</span>}
-                </span>
-                <span style={{fontWeight:"bold",color:ri===0?"#f0c060":"#eee"}}>{total}</span>
-              </div>
-              <div style={{height:6,background:"#0f3460",borderRadius:3,overflow:"hidden"}}>
-                <div style={{height:"100%",width:`${(total/maxLeaderTotal)*100}%`,background:tc||(ri===0?"#f0c060":"#e94560"),borderRadius:3,transition:"width 0.3s"}}/>
-              </div>
+        {leaderboardRows.map(({label,sub,total},ri)=>{
+          const tc=game.teamMode&&game.teams?TEAM_COLORS[game.teams.findIndex(t=>t.name===label)]:null;
+          return (<div key={label} style={{marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+              <span>{ri===0?"🏆 ":""}<span style={{color:tc||"#eee",fontWeight:600}}>{label}</span>{sub&&<span style={{fontSize:11,color:"#aaa",marginLeft:6}}>({sub})</span>}</span>
+              <span style={{fontWeight:"bold",color:ri===0?"#f0c060":"#eee"}}>{total}</span>
             </div>
-          );
+            <div style={{height:6,background:"#0f3460",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:`${(total/maxLeaderTotal)*100}%`,background:tc||(ri===0?"#f0c060":"#e94560"),borderRadius:3,transition:"width 0.3s"}}/></div>
+          </div>);
         })}
       </div>
-
-      <button onClick={()=>setDumbMode(d=>!d)}
-        style={{width:"100%",marginBottom:16,padding:"14px",fontSize:16,fontWeight:700,borderRadius:14,border:"none",cursor:"pointer",
-          background:dumbMode?"#f0c060":"#16213e",color:dumbMode?"#1a1a2e":"#f0c060",
-          boxShadow:dumbMode?"0 0 20px rgba(240,192,96,0.4)":"none",transition:"all 0.2s"}}>
+      <button onClick={()=>setDumbMode(d=>!d)} style={{width:"100%",marginBottom:16,padding:"14px",fontSize:16,fontWeight:700,borderRadius:14,border:"none",cursor:"pointer",background:dumbMode?"#f0c060":"#16213e",color:dumbMode?"#1a1a2e":"#f0c060",boxShadow:dumbMode?"0 0 20px rgba(240,192,96,0.4)":"none",transition:"all 0.2s"}}>
         {dumbMode?"🤓 Math Mode":"👆 Clicker Mode"}
       </button>
-
       <div style={{overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:14}}>
-          <thead>
-            <tr>
-              <th style={{textAlign:"left",padding:"8px 4px",color:"#aaa",fontWeight:400,fontSize:12}}>Category</th>
-              {game.players.map(p=><th key={p.name} style={{padding:"8px 4px",fontSize:13,textAlign:"center",minWidth:60,color:teamColor(p.name)||"#eee"}}>{p.name}{game.teamMode&&p.team?<div style={{fontSize:10,color:"#aaa"}}>{p.team}</div>:null}</th>)}
-            </tr>
-          </thead>
+          <thead><tr>
+            <th style={{textAlign:"left",padding:"8px 4px",color:"#aaa",fontWeight:400,fontSize:12}}>Category</th>
+            {game.players.map(p=><th key={p.name} style={{padding:"8px 4px",fontSize:13,textAlign:"center",minWidth:60,color:teamColor(p.name)||"#eee"}}>{p.name}{game.teamMode&&p.team?<div style={{fontSize:10,color:"#aaa"}}>{p.team}</div>:null}</th>)}
+          </tr></thead>
           <tbody>
             {game.categories.map(cat=>(
               <tr key={cat} style={{borderTop:"1px solid #0f3460"}}>
                 <td style={{padding:"8px 4px",color:"#ccc",fontSize:13}}>{cat}</td>
-                {game.players.map((p,pi)=>{
-                  const isSel=dumbMode&&dumbPi===pi&&dumbCat===cat;
-                  return (
-                    <td key={p.name} style={{padding:4}}>
-                      {dumbMode?(
-                        <div onClick={()=>{setDumbPi(pi);setDumbCat(cat);}}
-                          style={{width:54,background:isSel?"#f0c060":"#0f3460",borderRadius:8,color:isSel?"#1a1a2e":"#fff",textAlign:"center",padding:"8px 4px",fontSize:15,cursor:"pointer",fontWeight:isSel?700:400,transition:"all 0.15s"}}>
-                          {p.scores[cat]||0}
-                        </div>
-                      ):(
-                        <input type="number" inputMode="numeric"
-                          style={{width:54,background:"#0f3460",border:"none",borderRadius:8,color:"#fff",textAlign:"center",padding:"8px 4px",fontSize:15}}
-                          value={p.scores[cat]} onChange={e=>dispatch({type:"SET_SCORE",pi,cat,val:e.target.value})}/>
-                      )}
-                    </td>
-                  );
-                })}
+                {game.players.map((p,pi)=>{ const isSel=dumbMode&&dumbPi===pi&&dumbCat===cat; return (
+                  <td key={p.name} style={{padding:4}}>
+                    {dumbMode
+                      ? <div onClick={()=>{setDumbPi(pi);setDumbCat(cat);}} style={{width:54,background:isSel?"#f0c060":"#0f3460",borderRadius:8,color:isSel?"#1a1a2e":"#fff",textAlign:"center",padding:"8px 4px",fontSize:15,cursor:"pointer",fontWeight:isSel?700:400}}>{p.scores[cat]||0}</div>
+                      : <input type="number" inputMode="numeric" style={{width:54,background:"#0f3460",border:"none",borderRadius:8,color:"#fff",textAlign:"center",padding:"8px 4px",fontSize:15}} value={p.scores[cat]} onChange={e=>dispatch({type:"SET_SCORE",pi,cat,val:e.target.value})}/>
+                    }
+                  </td>
+                );})}
               </tr>
             ))}
             <tr style={{borderTop:"2px solid #e94560"}}>
@@ -524,36 +394,18 @@ function GameScreen({state,dispatch,finishGame}) {
           </tbody>
         </table>
       </div>
-
-      {showAdd?(
-        <div style={{marginTop:16,display:"flex",gap:8}}>
-          <input style={{...inp,flex:1,marginBottom:0}} placeholder="Category name" value={newCat} onChange={e=>setNewCat(e.target.value)}/>
-          <Btn primary onClick={()=>{if(newCat.trim()){dispatch({type:"ADD_CATEGORY",cat:newCat.trim()});setNewCat("");setShowAdd(false);}}}>Add</Btn>
-        </div>
-      ):<Btn onClick={()=>setShowAdd(true)} style={{marginTop:16}}>+ Add Row</Btn>}
-
+      {showAdd?(<div style={{marginTop:16,display:"flex",gap:8}}><input style={{...inp,flex:1}} placeholder="Category name" value={newCat} onChange={e=>setNewCat(e.target.value)}/><Btn primary onClick={()=>{if(newCat.trim()){dispatch({type:"ADD_CATEGORY",cat:newCat.trim()});setNewCat("");setShowAdd(false);}}}>Add</Btn></div>):<Btn onClick={()=>setShowAdd(true)} style={{marginTop:16}}>+ Add Row</Btn>}
       <div style={{position:"fixed",bottom:56,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,padding:"12px 20px",background:"#1a1a2e",borderTop:"1px solid #0f3460"}}>
-        {dumbMode?(
-          <div>
-            {dumbPi!==null&&dumbCat?(
-              <div style={{textAlign:"center",fontSize:13,color:"#aaa",marginBottom:8}}>
-                <b style={{color:"#f0c060"}}>{game.players[dumbPi]?.name}</b> · {dumbCat} · <b style={{color:"#f0c060"}}>{parseInt(game.players[dumbPi]?.scores[dumbCat])||0} pts</b>
-              </div>
-            ):<div style={{textAlign:"center",fontSize:13,color:"#555",marginBottom:8}}>Tap a score cell to select it</div>}
-            <div style={{display:"flex",gap:12}}>
-              {[{delta:-1,bg:"#c0392b",shadow:"rgba(192,57,43,0.5)",label:"−"},{delta:1,bg:"#27ae60",shadow:"rgba(39,174,96,0.5)",label:"+"}].map(({delta,bg,shadow,label})=>{
-                const active=dumbPi!==null&&dumbCat;
-                return (
-                  <button key={label} disabled={!active}
-                    onClick={()=>{ if(!active) return; const cur=parseInt(game.players[dumbPi]?.scores[dumbCat])||0; dispatch({type:"SET_SCORE",pi:dumbPi,cat:dumbCat,val:String(cur+delta)}); }}
-                    style={{flex:1,padding:"20px 0",fontSize:36,fontWeight:900,borderRadius:16,border:"none",cursor:active?"pointer":"not-allowed",background:active?bg:"#333",color:active?"#fff":"#666",boxShadow:active?`0 4px 20px ${shadow}`:"none",transition:"all 0.15s"}}>
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
+        {dumbMode?(<div>
+          <div style={{textAlign:"center",fontSize:13,color:dumbPi!==null&&dumbCat?"#aaa":"#555",marginBottom:8}}>
+            {dumbPi!==null&&dumbCat?<span><b style={{color:"#f0c060"}}>{game.players[dumbPi]?.name}</b> · {dumbCat} · <b style={{color:"#f0c060"}}>{parseInt(game.players[dumbPi]?.scores[dumbCat])||0} pts</b></span>:"Tap a score cell to select it"}
           </div>
-        ):<Btn full primary onClick={finishGame}>✅ Finish &amp; Save Game</Btn>}
+          <div style={{display:"flex",gap:12}}>
+            {[{delta:-1,bg:"#c0392b",shadow:"rgba(192,57,43,0.5)",label:"−"},{delta:1,bg:"#27ae60",shadow:"rgba(39,174,96,0.5)",label:"+"}].map(({delta,bg,shadow,label})=>{ const active=dumbPi!==null&&dumbCat; return (
+              <button key={label} disabled={!active} onClick={()=>{ if(!active) return; const cur=parseInt(game.players[dumbPi]?.scores[dumbCat])||0; dispatch({type:"SET_SCORE",pi:dumbPi,cat:dumbCat,val:String(cur+delta)}); }} style={{flex:1,padding:"20px 0",fontSize:36,fontWeight:900,borderRadius:16,border:"none",cursor:active?"pointer":"not-allowed",background:active?bg:"#333",color:active?"#fff":"#666",boxShadow:active?`0 4px 20px ${shadow}`:"none"}}>{label}</button>
+            );})}
+          </div>
+        </div>):<Btn full primary onClick={finishGame}>✅ Finish &amp; Save Game</Btn>}
       </div>
     </div>
   );
@@ -563,21 +415,12 @@ function GameScreen({state,dispatch,finishGame}) {
 function LeaderboardScreen({state}) {
   const [tab,setTab]=useState("topPlayer");
   const lb=buildLeaderboard(state.history);
+  const maxG=Math.max(...lb.map(p=>p.games),1);
   const tabs=[
-    {id:"topPlayer", icon:"⭐",label:"Top Player",
-      sort:(a,b)=>{
-        const maxG=Math.max(...lb.map(p=>p.games),1);
-        const score=p=>(p.winRate*0.6)+((p.games/maxG)*0.4);
-        return score(b)-score(a);
-      },
-      val:p=>{
-        const maxG=Math.max(...lb.map(x=>x.games),1);
-        return `${Math.round((p.winRate*0.6+(p.games/maxG)*0.4)*100)}pts`;
-      },
-      sub:"60% win rate + 40% games played (volume bonus)"},
-    {id:"mostWins",  icon:"🏆",label:"Most Wins",   sort:(a,b)=>b.wins-a.wins,       val:p=>`${p.wins%1===0?p.wins:p.wins.toFixed(2)} W`,  sub:"Total wins (fractional for team games)"},
-    {id:"mostGames", icon:"🎮",label:"Top Game Time",sort:(a,b)=>b.games-a.games,     val:p=>`${p.games} G`,                                sub:"Most games played"},
-    {id:"bestRate",  icon:"📈",label:"Best Rate",   sort:(a,b)=>b.winRate-a.winRate, val:p=>`${Math.round(p.winRate*100)}%`,               sub:"Wins ÷ games played"},
+    {id:"topPlayer",icon:"⭐",label:"Top Player",  sort:(a,b)=>(b.winRate*0.6+(b.games/maxG)*0.4)-(a.winRate*0.6+(a.games/maxG)*0.4), val:p=>`${Math.round((p.winRate*0.6+(p.games/maxG)*0.4)*100)}pts`, sub:"60% win rate + 40% games played volume"},
+    {id:"mostWins", icon:"🏆",label:"Most Wins",   sort:(a,b)=>b.wins-a.wins,       val:p=>`${p.wins%1===0?p.wins:p.wins.toFixed(2)} W`, sub:"Total wins (fractional for team games)"},
+    {id:"topTime",  icon:"🎮",label:"Top Game Time",sort:(a,b)=>b.games-a.games,    val:p=>`${p.games} G`,                               sub:"Most games played"},
+    {id:"bestRate", icon:"📈",label:"Best Rate",   sort:(a,b)=>b.winRate-a.winRate, val:p=>`${Math.round(p.winRate*100)}%`,              sub:"Wins ÷ games played"},
   ];
   const cur=tabs.find(t=>t.id===tab);
   const sorted=lb.length?[...lb].sort(cur.sort):[];
@@ -590,26 +433,20 @@ function LeaderboardScreen({state}) {
       </div>
       {sorted.length>=3&&(
         <div style={{display:"flex",alignItems:"flex-end",justifyContent:"center",gap:8,marginBottom:24,height:120}}>
-          {[sorted[1],sorted[0],sorted[2]].map((p,ri)=>{
-            const h=[90,120,75][ri]; const medals=["🥈","🥇","🥉"];
-            return (
-              <div key={p.name} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end"}}>
-                <div style={{fontSize:12,color:"#eee",marginBottom:4,textAlign:"center"}}>{p.name}</div>
-                <div style={{fontSize:13,color:"#f0c060",marginBottom:4}}>{cur.val(p)}</div>
-                <div style={{width:"100%",height:h,background:ri===1?"#f0c060":ri===0?"#aaa":"#cd7f32",borderRadius:"8px 8px 0 0",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>{medals[ri]}</div>
-              </div>
-            );
-          })}
+          {[sorted[1],sorted[0],sorted[2]].map((p,ri)=>{ const h=[90,120,75][ri]; const medals=["🥈","🥇","🥉"]; return (
+            <div key={p.name} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end"}}>
+              <div style={{fontSize:12,color:"#eee",marginBottom:4,textAlign:"center"}}>{p.name}</div>
+              <div style={{fontSize:13,color:"#f0c060",marginBottom:4}}>{cur.val(p)}</div>
+              <div style={{width:"100%",height:h,background:ri===1?"#f0c060":ri===0?"#aaa":"#cd7f32",borderRadius:"8px 8px 0 0",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>{medals[ri]}</div>
+            </div>
+          );})}
         </div>
       )}
       <h3 style={secHead}>{cur.sub}</h3>
       {sorted.map((p,i)=>(
         <div key={p.name} style={{background:"#16213e",borderRadius:12,padding:"12px 16px",marginBottom:8,display:"flex",alignItems:"center",gap:12}}>
           <span style={{fontSize:20,width:28,textAlign:"center"}}>{i===0?"🥇":i===1?"🥈":i===2?"🥉":`${i+1}.`}</span>
-          <div style={{flex:1}}>
-            <div style={{fontWeight:"bold"}}>{p.name}</div>
-            <div style={{fontSize:12,color:"#aaa"}}>{p.wins%1===0?p.wins:p.wins.toFixed(2)}W / {p.games}G · Avg {p.avgScore}pts</div>
-          </div>
+          <div style={{flex:1}}><div style={{fontWeight:"bold"}}>{p.name}</div><div style={{fontSize:12,color:"#aaa"}}>{p.wins%1===0?p.wins:p.wins.toFixed(2)}W / {p.games}G · Avg {p.avgScore}pts</div></div>
           <div style={{fontWeight:"bold",color:"#f0c060",fontSize:18}}>{cur.val(p)}</div>
         </div>
       ))}
@@ -622,27 +459,20 @@ function HistoryScreen({state,dispatch}) {
   return (
     <div style={{padding:"20px 20px 80px"}}>
       <h2 style={{color:"#f0c060",marginBottom:16}}>📋 Game History</h2>
-      {!state.history.length?<p style={{color:"#aaa",textAlign:"center",marginTop:60}}>No games yet!</p>
-        :state.history.map(g=><HistoryCard key={g.id} game={g} dispatch={dispatch}/>)}
+      {!state.history.length?<p style={{color:"#aaa",textAlign:"center",marginTop:60}}>No games yet!</p>:state.history.map(g=><HistoryCard key={g.id} game={g} dispatch={dispatch}/>)}
     </div>
   );
 }
-
 function HistoryCard({game,dispatch}) {
   const winner=[...game.players].sort((a,b)=>calcTotal(b)-calcTotal(a))[0];
   return (
-    <div onClick={()=>dispatch({type:"GO",screen:"historyDetail",id:game.id})}
-      style={{background:"#16213e",borderRadius:12,padding:"14px 16px",marginBottom:10,cursor:"pointer"}}>
-      <div style={{display:"flex",justifyContent:"space-between"}}>
-        <span>{game.emoji} {game.gameName}</span>
-        <span style={{color:"#aaa",fontSize:12}}>{new Date(game.finishedAt||game.startedAt).toLocaleDateString()}</span>
-      </div>
+    <div onClick={()=>dispatch({type:"GO",screen:"historyDetail",id:game.id})} style={{background:"#16213e",borderRadius:12,padding:"14px 16px",marginBottom:10,cursor:"pointer"}}>
+      <div style={{display:"flex",justifyContent:"space-between"}}><span>{game.emoji} {game.gameName}</span><span style={{color:"#aaa",fontSize:12}}>{new Date(game.finishedAt||game.startedAt).toLocaleDateString()}</span></div>
       <div style={{marginTop:6,color:"#f0c060",fontSize:13}}>🏆 {winner?.name} — {calcTotal(winner)} pts</div>
       <div style={{marginTop:4,color:"#aaa",fontSize:12}}>{game.players.map(p=>p.name).join(", ")}</div>
     </div>
   );
 }
-
 function HistoryDetail({state,dispatch}) {
   const game=state.history.find(g=>g.id===state.detailId);
   if(!game) return null;
@@ -652,14 +482,7 @@ function HistoryDetail({state,dispatch}) {
     <div style={{padding:"20px 20px 80px"}}>
       <TopBar title={`${game.emoji} ${game.gameName}`} onBack={()=>dispatch({type:"GO",screen:"history"})}/>
       <p style={{color:"#aaa",fontSize:13,marginBottom:20}}>{new Date(game.finishedAt||game.startedAt).toLocaleDateString("en-GB",{dateStyle:"long"})}</p>
-      <div style={{background:"#16213e",borderRadius:12,padding:16,marginBottom:20}}>
-        {sorted.map(({p,t},ri)=>(
-          <div key={p.name} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:ri<sorted.length-1?"1px solid #0f3460":"none"}}>
-            <span>{ri===0?"🏆 ":`${ri+1}. `}{p.name}</span>
-            <span style={{color:ri===0?"#f0c060":"#eee",fontWeight:"bold"}}>{t} pts</span>
-          </div>
-        ))}
-      </div>
+      <div style={{background:"#16213e",borderRadius:12,padding:16,marginBottom:20}}>{sorted.map(({p,t},ri)=><div key={p.name} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:ri<sorted.length-1?"1px solid #0f3460":"none"}}><span>{ri===0?"🏆 ":`${ri+1}. `}{p.name}</span><span style={{color:ri===0?"#f0c060":"#eee",fontWeight:"bold"}}>{t} pts</span></div>)}</div>
       <div style={{overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:14}}>
           <thead><tr><th style={{textAlign:"left",padding:"8px 4px",color:"#aaa",fontWeight:400,fontSize:12}}>Category</th>{game.players.map(p=><th key={p.name} style={{padding:"8px 4px",color:"#eee",fontSize:13,textAlign:"center"}}>{p.name}</th>)}</tr></thead>
@@ -676,43 +499,42 @@ function FamilyScreen({state,dispatch}) {
   const [pw,setPw]=useState("");
   const [loading,setLoading]=useState(false);
   const [msg,setMsg]=useState("");
-  async function join() {
+  async function join(){
     if(!pw.trim()) return; setLoading(true); setMsg("");
     const code=pw.trim().toLowerCase().replace(/\s+/g,"-");
-    let data=await familyLoad(code);
-    if(!data){ data={history:[],createdAt:new Date().toISOString()}; await familySave(code,data); setMsg(`✅ Created "${code}"! Share this password with your family.`); }
-    else { setMsg(`✅ Joined "${code}" — ${data.history?.length||0} games found.`); }
+    const games=await dbLoad(code);
+    if(games===null){ await dbSave(code,[]); setMsg(`✅ Created "${code}"! Share this password with your friends.`); }
+    else { setMsg(`✅ Joined "${code}" — ${games.length} games found.`); dispatch({type:"SYNC_HISTORY",history:games}); }
     dispatch({type:"SET_FAMILY",family:code});
-    if(data.history) dispatch({type:"SYNC_FAMILY_HISTORY",history:data.history});
     setLoading(false);
   }
   function leave(){ dispatch({type:"SET_FAMILY",family:null}); setMsg(""); setPw(""); }
   return (
     <div style={{padding:"20px 20px 80px"}}>
       <h2 style={{color:"#f0c060",marginBottom:8}}>👨‍👩‍👧 Family Space</h2>
-      <p style={{color:"#aaa",fontSize:14,marginBottom:24}}>Share scores across devices with a shared password.</p>
+      <p style={{color:"#aaa",fontSize:14,marginBottom:24}}>Enter a shared password to sync scores across all devices.</p>
+      {!sb&&<div style={{background:"#3d2a00",borderRadius:12,padding:16,marginBottom:20,fontSize:14,color:"#f0c060"}}>⚠️ Supabase not configured yet. Follow the setup instructions to enable sync.</div>}
       {state.family?(
         <div>
           <div style={{background:"#16213e",borderRadius:14,padding:20,marginBottom:20,textAlign:"center"}}>
             <div style={{fontSize:40,marginBottom:8}}>👨‍👩‍👧</div>
             <div style={{fontWeight:"bold",fontSize:18,color:"#f0c060",marginBottom:4}}>{state.family}</div>
-            <div style={{color:"#aaa",fontSize:13}}>Your family password · {state.history.length} shared games</div>
+            <div style={{color:"#aaa",fontSize:13}}>{state.history.length} shared games</div>
           </div>
           <div style={{background:"#16213e",borderRadius:12,padding:16,marginBottom:20}}>
-            <div style={{fontWeight:"bold",marginBottom:8}}>How to add family members:</div>
+            <div style={{fontWeight:"bold",marginBottom:8}}>Share with friends:</div>
             <ol style={{color:"#aaa",fontSize:14,paddingLeft:20,lineHeight:2}}>
-              <li>Open this app on their device</li>
-              <li>Tap the Family tab</li>
-              <li>Enter: <b style={{color:"#f0c060"}}>{state.family}</b></li>
+              <li>Send them your URL</li>
+              <li>They tap the Family tab</li>
+              <li>Enter password: <b style={{color:"#f0c060"}}>{state.family}</b></li>
             </ol>
           </div>
           <Btn full onClick={leave} style={{background:"#3d1a1a",color:"#ff6b6b"}}>Leave Family Space</Btn>
         </div>
       ):(
         <div>
-          <h3 style={secHead}>Enter Family Password</h3>
           <input style={{...inp,marginBottom:12}} placeholder="e.g. smithfamily" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&join()}/>
-          <Btn full primary onClick={join} disabled={loading||!pw.trim()}>{loading?"Connecting…":"Join / Create Family Space →"}</Btn>
+          <Btn full primary onClick={join} disabled={loading||!pw.trim()||!sb}>{loading?"Connecting…":"Join / Create Space →"}</Btn>
           {msg&&<div style={{marginTop:16,background:"#16213e",borderRadius:10,padding:14,fontSize:14,color:"#aaa"}}>{msg}</div>}
         </div>
       )}
@@ -721,16 +543,12 @@ function FamilyScreen({state,dispatch}) {
 }
 
 // ── Shared UI ─────────────────────────────────────────────────────────────────
-function TopBar({title,onBack}) {
-  return (
-    <div style={{display:"flex",alignItems:"center",marginBottom:24,gap:12}}>
-      <button onClick={onBack} style={{background:"#16213e",border:"none",color:"#eee",borderRadius:8,padding:"8px 12px",cursor:"pointer",fontSize:16}}>←</button>
-      <h2 style={{margin:0,fontSize:18}}>{title}</h2>
-    </div>
-  );
-}
-function Btn({children,onClick,full,primary,disabled,style}) {
-  return <button onClick={onClick} disabled={disabled} style={{width:full?"100%":"auto",background:primary?"#e94560":"#16213e",color:disabled?"#666":"#fff",border:"none",borderRadius:12,padding:"14px 20px",fontSize:15,cursor:disabled?"not-allowed":"pointer",fontWeight:primary?600:400,...style}}>{children}</button>;
-}
+function TopBar({title,onBack}){ return <div style={{display:"flex",alignItems:"center",marginBottom:24,gap:12}}><button onClick={onBack} style={{background:"#16213e",border:"none",color:"#eee",borderRadius:8,padding:"8px 12px",cursor:"pointer",fontSize:16}}>←</button><h2 style={{margin:0,fontSize:18}}>{title}</h2></div>; }
+function Btn({children,onClick,full,primary,disabled,style}){ return <button onClick={onClick} disabled={disabled} style={{width:full?"100%":"auto",background:primary?"#e94560":"#16213e",color:disabled?"#666":"#fff",border:"none",borderRadius:12,padding:"14px 20px",fontSize:15,cursor:disabled?"not-allowed":"pointer",fontWeight:primary?600:400,...style}}>{children}</button>; }
 const secHead={fontSize:12,textTransform:"uppercase",letterSpacing:1,color:"#aaa",marginBottom:10,marginTop:0};
 const inp={width:"100%",background:"#16213e",border:"1px solid #0f3460",borderRadius:10,color:"#fff",padding:"12px 14px",fontSize:15,boxSizing:"border-box",display:"block"};
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
