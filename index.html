@@ -113,7 +113,7 @@ function newGame(gk,pn,cats,cn,ce,tm,teams,st,ms,user,fu,lw){
   const isInd=st==="independent"||def.scoringType==="independent";
   const categories=isInd?["Score"]:(gk==="custom"?cats:def.categories);
   const emoji=gk==="custom"?(ce||"🎲"):def.emoji;
-  const maxScore=isInd?(ms||def.maxScore||10):null;
+  const maxScore=isInd?(ms||def.maxScore||50):null;
   const lowWins=!!(lw||def.lowWins);
   const myName=user&&fu&&fu[user.userId]?fu[user.userId].displayName:(user?.displayName||null);
   const players=tm&&teams?teams.flatMap(team=>team.members.map(n=>({name:n,scores:Object.fromEntries(categories.map(c=>[c,""])),team:team.name,userId:user&&n===myName?user.userId:undefined}))):pn.map(n=>({name:n,scores:Object.fromEntries(categories.map(c=>[c,""])),userId:user&&n===myName?user.userId:undefined}));
@@ -294,7 +294,7 @@ function HomeScreen({state,dispatch}){
 function SetupScreen({state,dispatch}){
   const fu=state.familyUsers||{};
   const myName=state.user&&fu[state.user.userId]?fu[state.user.userId].displayName:(state.user?.displayName||null);
-  const EMOJI_OPTS=["🎲","🃏","♟","🎯","🧩","🎮","🏆","🌍","🐉","🚂","🏰","🌿","⚔","🔮","🎪","🦁","🚀","🍀","🎠","💎","🫘","🐱","🌸","🏟️","🌈"];
+  const EMOJI_OPTS=["🎲","🃏","♟","🎯","🧩","🎮","🏆","🌍","🐉","🚂","🏰","🌿","⚔","🔮","🎪","🦁","🚀","🍀","🎠","💎","🫘","🐱","🌸","🏟️"];
   const[gameKey,setGameKey]=useState(null);const[cats,setCats]=useState([""]);const[custName,setCustName]=useState("");const[custEmoji,setCustEmoji]=useState("🎲");const[showPick,setShowPick]=useState(false);
   const[teamMode,setTeamMode]=useState(false);const[numTeams,setNumTeams]=useState(2);
   const[teams,setTeams]=useState([{name:"Team 1",members:[]},{name:"Team 2",members:[]},{name:"Team 3",members:[]},{name:"Team 4",members:[]}]);
@@ -450,7 +450,7 @@ function GameScreen({state,dispatch,finishGame}){
 function CaptureScores({game,dispatch,finishGame,catIdx,setCatIdx,onBack,lowWins}){
   const isInd=game.scoringType==="independent";
   const cat=game.categories[catIdx]||game.categories[0];
-  const maxVal=isInd?(game.maxScore||10):Infinity;
+  const maxVal=isInd?(game.maxScore||50):Infinity;
   return(
     <div style={{padding:"0 0 80px"}}>
       <div onClick={onBack} style={{background:C.lime,color:C.ink,textAlign:"center",padding:"14px",fontSize:15,fontWeight:900,cursor:"pointer",borderBottom:`2px solid ${C.ink}`}}>🏆 Live Score Overview</div>
