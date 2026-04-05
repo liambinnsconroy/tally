@@ -10,7 +10,7 @@
   <script>
     var SUPABASE_URL="https://lijgbsxjatfzewogznwg.supabase.co";
     var SUPABASE_ANON="sb_publishable_Rll9McjZsM2fPYoYdXnMAA_j0Y37bHO";
-  </script>
+ </script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
@@ -49,7 +49,7 @@ const TE=["🔴","🔵","🟢","🟡"];
 
 /* ═══ Built-in Games ═══ */
 const BUILT_IN_GAMES={
-  colourmatch:{name:"Colour Match",emoji:"🌈",scoringType:"independent",maxScore:10,categories:["Score"]},
+  colourmatch:{name:"Colour Match",emoji:"🌈",scoringType:"independent",maxScore:50,categories:["Score"]},
   catan:{name:"Catan",emoji:"🏝️",categories:["Settlements","Cities","Longest Road","Largest Army","Dev Cards","Special VP"]},
   wingspan:{name:"Wingspan",emoji:"🐦",categories:["Birds","Bonus Cards","End-of-Round Goals","Eggs","Food on Cards","Tucked Cards"]},
   scrabble:{name:"Scrabble",emoji:"🔡",categories:["Round 1","Round 2","Round 3","Round 4","Round 5","Round 6","Round 7","Round 8","Tile Penalty"]},
@@ -57,7 +57,7 @@ const BUILT_IN_GAMES={
 };
 
 /* ═══ Helpers ═══ */
-const calcTotal=p=>p?.scores?Object.values(p.scores).reduce((s,v)=>s+(parseInt(v)||0),0):0;
+const calcTotal=p=>p?.scores?Object.values(p.scores).reduce((s,v)=>s+(parseFloat(v)||0),0):0;
 const fmtTime=s=>`${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
 function medal(r){return r===1?"🥇":r===2?"🥈":r===3?"🥉":`${r}.`}
 function getRanks(arr,fn){const r=[];for(let i=0;i<arr.length;i++){if(i===0)r.push(1);else if(Math.abs(fn(arr[i])-fn(arr[i-1]))<0.001)r.push(r[i-1]);else r.push(i+1)}return r}
@@ -112,7 +112,7 @@ function buildLeaderboard(history,fu={}){
     if(!g.finished||g.scoringType!=="independent")return;
     const k=g.gameKey==="custom"?g.gameName:g.gameKey;
     if(!indGames[k])indGames[k]={maxScore:g.maxScore||10,entries:{}};
-    g.players.forEach(p=>{const sc=parseInt(p.scores?.Score)||0;const pk=pkey(p);if(!indGames[k].entries[pk])indGames[k].entries[pk]={total:0,count:0,name:rname(p,fu)};indGames[k].entries[pk].total+=sc;indGames[k].entries[pk].count+=1});
+    g.players.forEach(p=>{const sc=parseFloat(p.scores?.Score)||0;const pk=pkey(p);if(!indGames[k].entries[pk])indGames[k].entries[pk]={total:0,count:0,name:rname(p,fu)};indGames[k].entries[pk].total+=sc;indGames[k].entries[pk].count+=1});
   });
   Object.values(indGames).forEach(ig=>{
     let best=-1;const effs={};
@@ -127,7 +127,7 @@ function buildLeaderboard(history,fu={}){
 function buildIndependentRankings(history,gameKey,fu={}){
   const players={};
   history.forEach(g=>{if(!g.finished||g.scoringType!=="independent")return;const k=g.gameKey==="custom"?g.gameName:g.gameKey;if(k!==gameKey)return;
-    g.players.forEach(p=>{const sc=parseInt(p.scores?.Score)||0;const pk=pkey(p);const dn=rname(p,fu);if(!players[pk])players[pk]={name:dn,total:0,count:0,lastPlayed:null};players[pk].name=dn;players[pk].total+=sc;players[pk].count+=1;const d=g.finishedAt||g.startedAt;if(!players[pk].lastPlayed||d>players[pk].lastPlayed)players[pk].lastPlayed=d});
+    g.players.forEach(p=>{const sc=parseFloat(p.scores?.Score)||0;const pk=pkey(p);const dn=rname(p,fu);if(!players[pk])players[pk]={name:dn,total:0,count:0,lastPlayed:null};players[pk].name=dn;players[pk].total+=sc;players[pk].count+=1;const d=g.finishedAt||g.startedAt;if(!players[pk].lastPlayed||d>players[pk].lastPlayed)players[pk].lastPlayed=d});
   });
   const ms=history.find(g=>{const k=g.gameKey==="custom"?g.gameName:g.gameKey;return k===gameKey&&g.scoringType==="independent"})?.maxScore||10;
   return Object.values(players).map(p=>({...p,avg:p.count>0?p.total/p.count:0,effective:p.count>0?(p.total/p.count)*Math.min(1,p.count/10):0,maxScore:ms})).sort((a,b)=>b.effective-a.effective);
@@ -247,7 +247,7 @@ function App(){
       {!sb&&showNav&&<div style={{background:C.lime,color:C.muted,textAlign:"center",fontSize:11,padding:"4px 8px",borderBottom:`2px solid ${C.ink}`}}>⚠️ Supabase not configured</div>}
       <Screen state={state} dispatch={dispatch} finishGame={finishGame} timerProps={timerProps}/>
       {showNav&&state.screen!=="timer"&&timerRem!==null&&timerRem>0&&(
-        <div onClick={()=>dispatch({type:"GO",screen:"timer"})} style={{position:"fixed",bottom:62,right:12,background:timerRun?C.tomato:C.muted,color:C.white,borderRadius:20,padding:"6px 14px",fontSize:13,fontWeight:700,cursor:"pointer",zIndex:100,border:`2px solid ${C.ink}`,boxShadow:`2px 2px 0 ${C.ink}`}}>
+        <div onClick={()=>dispatch({type:"GO",screen:"timer"})} style={{position:"fixed",bottom:66,right:12,background:timerRun?C.tomato:C.muted,color:C.white,borderRadius:28,padding:"12px 22px",fontSize:22,fontWeight:900,cursor:"pointer",zIndex:100,border:`2px solid ${C.ink}`,boxShadow:`3px 3px 0 ${C.ink}`}}>
           {timerRun?"⏱":"⏸"} {fmtTime(timerRem)}
         </div>
       )}
@@ -295,7 +295,7 @@ function WelcomeScreen({state,dispatch}){
     <div style={{padding:"40px 24px",minHeight:"100vh",display:"flex",flexDirection:"column",justifyContent:"center"}}>
       <div style={{textAlign:"center",marginBottom:40}}>
         <div style={{fontSize:56,marginBottom:8}}>🎲</div>
-        <h1 style={{fontSize:32,fontFamily:"Georgia,serif",fontWeight:900,color:C.ink}}>Tally</h1>
+        <h1 style={{fontSize:32,fontFamily:"Georgia,serif",fontWeight:900,color:C.ink}}>Score Keeper</h1>
         <p style={{color:C.white,fontSize:14,marginTop:8}}>Track scores, settle debates.</p>
       </div>
 
@@ -350,7 +350,7 @@ function BottomNav({screen,dispatch,state}){
   return(
     <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:C.card,borderTop:`3px solid ${C.ink}`,display:"flex"}}>
       {!!state.current&&screen!=="game"&&<button onClick={()=>dispatch({type:"GO",screen:"game"})} style={{position:"absolute",top:-44,left:"50%",transform:"translateX(-50%)",background:C.tomato,border:`2px solid ${C.ink}`,color:C.white,borderRadius:20,padding:"8px 20px",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",boxShadow:`3px 3px 0 ${C.ink}`}}>▶ Resume Game</button>}
-      {tabs.map(t=><button key={t.id} onClick={()=>dispatch({type:"GO",screen:t.id})} style={{flex:1,background:"none",border:"none",color:screen===t.id?C.tomato:C.muted,padding:"10px 0 8px",cursor:"pointer",fontSize:10,display:"flex",flexDirection:"column",alignItems:"center",gap:2,fontWeight:700}}><span style={{fontSize:18}}>{t.icon}</span>{t.label}</button>)}
+      {tabs.map(t=><button key={t.id} onClick={()=>dispatch({type:"GO",screen:t.id})} style={{flex:1,background:"none",border:"none",color:screen===t.id?C.tomato:C.ink,padding:"10px 0 8px",cursor:"pointer",fontSize:11,display:"flex",flexDirection:"column",alignItems:"center",gap:2,fontWeight:900}}><span style={{fontSize:18}}>{t.icon}</span>{t.label}</button>)}
     </div>
   );
 }
@@ -423,7 +423,7 @@ function HomeScreen({state,dispatch}){
   const myName=state.user&&fu[state.user.userId]?fu[state.user.userId].displayName:null;
   return(
     <div style={{padding:"20px 20px 80px"}}>
-      <h1 style={{textAlign:"center",fontSize:34,margin:"24px 0 4px",fontFamily:"Georgia,serif",fontWeight:900,color:C.ink,letterSpacing:-1}}>🎲 Tally</h1>
+      <h1 style={{textAlign:"center",fontSize:34,margin:"24px 0 4px",fontFamily:"Georgia,serif",fontWeight:900,color:C.ink,letterSpacing:-1}}>🎲 Score Keeper</h1>
       {myName&&<p style={{textAlign:"center",color:C.white,fontSize:13,marginBottom:4}}>Hey, <b>{myName}</b>!</p>}
       {state.user?.guest&&<p style={{textAlign:"center",color:C.white,fontSize:12,marginBottom:4,opacity:0.7}}>Playing as guest</p>}
       {state.family&&<p style={{textAlign:"center",color:C.muted,fontSize:12,marginBottom:8}}>👨‍👩‍👧 <b style={{color:C.card}}>{state.family}</b></p>}
@@ -617,7 +617,7 @@ function GameScreen({state,dispatch,finishGame}){
           <tbody>
             {isInd?game.players.map((p,pi)=><tr key={p.name} style={{background:pi%2===0?C.white:C.card}}>
               <td style={{padding:"8px 12px",color:C.ink,fontSize:13,fontWeight:700}}>{p.name}</td>
-              <td style={{padding:4,textAlign:"center"}}><input type="number" inputMode="numeric" min="0" max={game.maxScore} style={{width:64,background:C.white,border:`2px solid ${C.ink}`,borderRadius:8,color:C.ink,textAlign:"center",padding:"8px 4px",fontSize:15,fontWeight:700}} value={p.scores.Score} onChange={e=>{const v=Math.min(game.maxScore,Math.max(0,parseInt(e.target.value)||0));dispatch({type:"SET_SCORE",pi,cat:"Score",val:String(v)})}}/></td>
+              <td style={{padding:4,textAlign:"center"}}><input type="number" inputMode="decimal" step="any" min="0" max={game.maxScore} style={{width:74,background:C.white,border:`2px solid ${C.ink}`,borderRadius:8,color:C.ink,textAlign:"center",padding:"8px 4px",fontSize:15,fontWeight:700}} value={p.scores.Score} onChange={e=>dispatch({type:"SET_SCORE",pi,cat:"Score",val:e.target.value})}/></td>
             </tr>):game.categories.map((cat,ci)=><tr key={cat} style={{background:ci%2===0?C.white:C.card}}>
               <td style={{padding:"8px 12px",color:C.ink,fontSize:13,fontWeight:700}}>{cat}</td>
               {game.players.map((p,pi)=><td key={p.name} style={{padding:4,textAlign:"center"}}><input type="number" inputMode="numeric" style={{width:54,background:C.white,border:`2px solid ${C.ink}`,borderRadius:8,color:C.ink,textAlign:"center",padding:"8px 4px",fontSize:15,fontWeight:700}} value={p.scores[cat]} onChange={e=>dispatch({type:"SET_SCORE",pi,cat,val:e.target.value})}/></td>)}
@@ -647,17 +647,17 @@ function ClickerMode({game,dispatch,finishGame,catIdx,setCatIdx,onExit}){
         </div>
       </div>}
       <div style={{display:"grid",gridTemplateColumns:game.players.length===1?"1fr":"1fr 1fr",gap:12,padding:"12px 16px"}}>
-        {game.players.map((p,pi)=>{const ci=game.teamMode&&game.teams?game.teams.findIndex(t=>t.members.includes(p.name)):pi;const color=TC[ci%TC.length];const light=TCL[ci%TCL.length];const score=parseInt(p.scores[cat])||0;
+        {game.players.map((p,pi)=>{const ci=game.teamMode&&game.teams?game.teams.findIndex(t=>t.members.includes(p.name)):pi;const color=TC[ci%TC.length];const light=TCL[ci%TCL.length];const score=parseFloat(p.scores[cat])||0;
           return(<div key={p.name} style={{borderRadius:16,overflow:"hidden",border:`2px solid ${C.ink}`,boxShadow:`3px 3px 0 ${C.ink}`}}>
             <div style={{background:color,padding:"14px 12px",display:"flex",flexDirection:"column",alignItems:"center",minHeight:140,justifyContent:"center"}}>
               <div style={{fontSize:12,color:"rgba(255,255,255,0.8)",fontWeight:700,marginBottom:2}}>{p.name}</div>
               {game.teamMode&&p.team&&<div style={{fontSize:10,color:"rgba(255,255,255,0.6)",marginBottom:4}}>{p.team}</div>}
               <div style={{fontSize:11,color:"rgba(255,255,255,0.6)",marginBottom:6}}>{cat}</div>
               <div style={{fontSize:36,fontWeight:900,color:C.white,fontFamily:"Georgia,serif",marginBottom:10}}>{isInd?`${score}/${maxVal}`:score}</div>
-              <button onClick={()=>{if(score<maxVal)dispatch({type:"SET_SCORE",pi,cat,val:String(score+1)})}} style={{width:56,height:56,borderRadius:28,border:"none",background:"rgba(255,255,255,0.3)",color:C.white,fontSize:32,fontWeight:900,cursor:score>=maxVal?"not-allowed":"pointer",opacity:score>=maxVal?0.4:1}}>+</button>
+              <button onClick={()=>{if(score<maxVal)dispatch({type:"SET_SCORE",pi,cat,val:String(Math.min(maxVal,score+1))})}} style={{width:56,height:56,borderRadius:28,border:"none",background:"rgba(255,255,255,0.3)",color:C.white,fontSize:32,fontWeight:900,cursor:score>=maxVal?"not-allowed":"pointer",opacity:score>=maxVal?0.4:1}}>+</button>
             </div>
             <div style={{background:light,padding:"10px 12px",display:"flex",justifyContent:"center"}}>
-              <button onClick={()=>{if(score>0)dispatch({type:"SET_SCORE",pi,cat,val:String(score-1)})}} style={{width:40,height:40,borderRadius:20,border:`2px solid ${C.ink}`,background:C.white,color:C.ink,fontSize:22,fontWeight:900,cursor:score<=0?"not-allowed":"pointer",opacity:score<=0?0.4:1}}>−</button>
+              <button onClick={()=>{if(score>0)dispatch({type:"SET_SCORE",pi,cat,val:String(Math.max(0,score-1))})}} style={{width:40,height:40,borderRadius:20,border:`2px solid ${C.ink}`,background:C.white,color:C.ink,fontSize:22,fontWeight:900,cursor:score<=0?"not-allowed":"pointer",opacity:score<=0?0.4:1}}>−</button>
             </div>
           </div>);
         })}
@@ -867,7 +867,7 @@ function FamilyScreen({state,dispatch}){
       {/* Your Families */}
       {state.user&&!state.user.guest&&state.user.families?.length>0&&(
         <div style={{marginBottom:20}}>
-          <h3 style={secHead}>Your Families</h3>
+          <h3 style={{...secHead,color:C.card}}>Your Families</h3>
           {state.user.families.map(f=>(
             <div key={f} style={{...S.card,padding:"12px 16px",marginBottom:8,display:"flex",alignItems:"center",justifyContent:"space-between",background:f===state.family?C.lime:C.card}}>
               <div onClick={()=>{if(f!==state.family&&!state.current)dispatch({type:"SWITCH_FAMILY",family:f})}} style={{cursor:f!==state.family&&!state.current?"pointer":"default",flex:1}}>
@@ -877,13 +877,13 @@ function FamilyScreen({state,dispatch}){
               <span onClick={()=>{if(window.confirm(`Leave "${f}"?`))dispatch({type:"LEAVE_FAMILY",family:f})}} style={{color:"#c0392b",fontSize:12,cursor:"pointer",fontWeight:700}}>Leave</span>
             </div>
           ))}
-          {state.current&&<p style={{color:C.muted,fontSize:11,marginTop:4}}>Finish your current game before switching families.</p>}
+          {state.current&&<p style={{color:C.card,fontSize:11,marginTop:4}}>Finish your current game before switching families.</p>}
         </div>
       )}
 
       {/* Join Family */}
       <div style={{marginBottom:20}}>
-        <h3 style={secHead}>Join / Create Family Space</h3>
+        <h3 style={{...secHead,color:C.card}}>Join / Create Family Space</h3>
         {!sb&&<div style={{...S.limeCard,padding:14,marginBottom:12,fontSize:13,color:C.muted}}>⚠️ Supabase not configured.</div>}
         <input style={{...inp,marginBottom:12}} placeholder="Family password e.g. smithfamily" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&joinFamily()}/>
         <Btn full primary onClick={joinFamily} disabled={loading||!pw.trim()||!sb}>{loading?"Connecting…":"Join / Create →"}</Btn>
@@ -893,8 +893,8 @@ function FamilyScreen({state,dispatch}){
       {/* Claim Players */}
       {state.family&&!state.user?.guest&&claimable.length>0&&(
         <div style={{marginBottom:20}}>
-          <h3 style={secHead}>Unclaimed Players</h3>
-          <p style={{color:C.muted,fontSize:12,marginBottom:12}}>Tap a name to link their games to your account.</p>
+          <h3 style={{...secHead,color:C.card}}>Unclaimed Players</h3>
+          <p style={{color:C.card,fontSize:12,marginBottom:12}}>Tap a name to link their games to your account.</p>
           {claimable.map(c=>(
             <div key={c.name} onClick={()=>startClaim(c)} style={{...S.card,padding:"12px 16px",marginBottom:8,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <span style={{fontWeight:700}}>{c.name}</span>
