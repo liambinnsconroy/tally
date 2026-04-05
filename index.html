@@ -53,6 +53,7 @@ const BUILT_IN_GAMES={
   catan:{name:"Catan",emoji:"🏝️",categories:["Settlements","Cities","Longest Road","Largest Army","Dev Cards","Special VP"]},
   wingspan:{name:"Wingspan",emoji:"🐦",categories:["Birds","Bonus Cards","End-of-Round Goals","Eggs","Food on Cards","Tucked Cards"]},
   scrabble:{name:"Scrabble",emoji:"🔡",categories:["Round 1","Round 2","Round 3","Round 4","Round 5","Round 6","Round 7","Round 8","Tile Penalty"]},
+  rummikub:{name:"Rummikub",emoji:"🔢",categories:["Score"]},
   custom:{name:"Custom",emoji:"🎲",categories:[]},
 };
 
@@ -740,6 +741,7 @@ function HistoryDetail({state,dispatch}){
   const game=state.history.find(g=>g.id===state.detailId);
   if(!game)return<div style={{padding:"20px 20px 80px"}}><TopBar title="Game Detail" onBack={()=>dispatch({type:"GO",screen:"history"})}/><p style={{color:C.muted,textAlign:"center",marginTop:60}}>Game not found.</p></div>;
   const isInd=game.scoringType==="independent";const dn=game.gameName||"Game";const de=game.emoji||"🎲";
+  const canDelete=!state.user?.guest&&game.players.some(p=>p.userId&&p.userId===state.user?.userId);
   const totals=game.players.map(calcTotal);const sorted=[...game.players].map((p,i)=>({p,t:totals[i]})).sort((a,b)=>b.t-a.t);
   return(
     <div style={{padding:"20px 20px 80px"}}>
@@ -754,7 +756,7 @@ function HistoryDetail({state,dispatch}){
           </tbody>
         </table>
       </div></div>}
-      <Btn full onClick={()=>{if(window.confirm("Delete this game?"))dispatch({type:"DELETE_HISTORY",id:game.id})}} style={{marginTop:4,background:"#fde8e8",color:"#c0392b",borderColor:"#c0392b"}}>🗑 Delete Game</Btn>
+      {canDelete&&<Btn full onClick={()=>{if(window.confirm("Delete this game?"))dispatch({type:"DELETE_HISTORY",id:game.id})}} style={{marginTop:4,background:"#fde8e8",color:"#c0392b",borderColor:"#c0392b"}}>🗑 Delete Game</Btn>}
     </div>
   );
 }
