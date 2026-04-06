@@ -270,7 +270,7 @@ function gameName(g) {
   if (g.gameKey && g.gameKey !== "custom") return g.gameKey;
   if (g.gameName) return g.gameName;
   return "Game";
-}}
+}
 
 function gameEmoji(g) {
   return g.emoji || (BUILT_IN_GAMES[g.gameKey] ? BUILT_IN_GAMES[g.gameKey].emoji : null) || "🎲";
