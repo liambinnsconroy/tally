@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>🎲 Tally Migration</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/config.js"></script>
+  <style>
+    :root{--bg:#1a1a2e;--card:#16213e;--accent:#F06038;--text:#e0e0e0;--muted:#888;--border:#333;--green:#2ecc71;--red:#e74c3c}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:var(--bg);color:var(--text);font-family:'Courier New',monospace;padding:40px 20px;min-height:100vh}
+    .container{max-width:700px;margin:0 auto}
+    h1{color:var(--accent);margin-bottom:8px}
+    h2{color:var(--accent);margin:24px 0 8px;font-size:16px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:12px}
+    button{background:var(--accent);color:white;border:none;border-radius:6px;padding:12px 24px;font-size:15px;cursor:pointer;font-family:inherit;font-weight:700;margin:4px}
+    button:disabled{opacity:0.5;cursor:not-allowed}
+    button.danger{background:var(--red)}
+    .log{background:#0a0a15;border:1px solid var(--border);border-radius:8px;padding:16px;max-height:500px;overflow-y:auto;font-size:12px;line-height:1.8;margin-top:16px}
+    .log-ok{color:var(--green)}
+    .log-err{color:var(--red)}
+    .log-info{color:var(--muted)}
+    .log-warn{color:#f39c12}
+    .text-muted{color:var(--muted);font-size:13px}
+    .summary{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin:16px 0}
+    .summary-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px;text-align:center}
+    .summary-num{font-size:28px;font-weight:900;color:var(--accent)}
+    .summary-label{font-size:11px;color:var(--muted);margin-top:4px}
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>🎲 Tally — Database Migration</h1>
+  <p class="text-muted">Migrates data from the old single-table format to the new structured tables.</p>
+  <p class="text-muted">Your old <code>family_games</code> table is NOT modified. This is a one-way copy.</p>
+
+  <h2>Step 1: Scan existing data</h2>
+  <p class="text-muted">Reads the old table and shows what will be migrated.</p>
+  <button id="btn-scan" onclick="doScan()">🔍 Scan Old Data</button>
+
+  <div id="scan-results"></div>
+
+  <h2>Step 2: Run migration</h2>
+  <p class="text-muted">Copies everything into the new tables. Safe to run multiple times — duplicates are skipped.</p>
+  <button id="btn-migrate" onclick="doMigrate()" disabled>🚀 Start Migration</button>
+
+  <div id="log" class="log" style="display:none"></div>
+</div>
+
+<script>
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+let oldData = [];
+let scanDone = false;
+
+// PIN hashing
+async function hashPin(pin) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(pin);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+function isHashed(pin) {
+  return typeof pin === 'string' && pin.length === 64 && /^[0-9a-f]+$/.test(pin);
+}
+
+function log(msg, type) {
+  const el = document.getElementById("log");
+  el.style.display = "block";
+  el.innerHTML += `<div class="log-${type||'info'}">${msg}</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+async function doScan() {
+  document.getElementById("scan-results").innerHTML = "<p class='text-muted'>Scanning...</p>";
+  try {
+    const { data, error } = await sb.from("family_games").select("family_code,games,updated_at");
+    if (error) throw error;
+    oldData = data || [];
+
+    const users = oldData.filter(r => r.family_code.startsWith("user_"));
+    const families = oldData.filter(r => !r.family_code.startsWith("user_") && !r.family_code.includes("_templates") && !r.family_code.includes("_users"));
+    const templates = oldData.filter(r => r.family_code.endsWith("_templates"));
+    const familyUsers = oldData.filter(r => r.family_code.endsWith("_users") && !r.family_code.startsWith("user_"));
+
+    let totalGames = 0;
+    families.forEach(f => { if (Array.isArray(f.games)) totalGames += f.games.length; });
+
+    let totalTemplates = 0;
+    templates.forEach(t => { if (t.games && typeof t.games === 'object') totalTemplates += Object.keys(t.games).length; });
+
+    document.getElementById("scan-results").innerHTML = `
+      <div class="summary">
+        <div class="summary-card"><div class="summary-num">${users.length}</div><div class="summary-label">User Accounts</div></div>
+        <div class="summary-card"><div class="summary-num">${families.length}</div><div class="summary-label">Family Spaces</div></div>
+        <div class="summary-card"><div class="summary-num">${totalGames}</div><div class="summary-label">Game Records</div></div>
+        <div class="summary-card"><div class="summary-num">${totalTemplates}</div><div class="summary-label">Templates</div></div>
+        <div class="summary-card"><div class="summary-num">${familyUsers.length}</div><div class="summary-label">Family User Maps</div></div>
+        <div class="summary-card"><div class="summary-num">${oldData.length}</div><div class="summary-label">Total Old Records</div></div>
+      </div>
+    `;
+    scanDone = true;
+    document.getElementById("btn-migrate").disabled = false;
+  } catch(e) {
+    document.getElementById("scan-results").innerHTML = `<p style="color:var(--red)">Error: ${e.message}</p>`;
+  }
+}
+
+async function doMigrate() {
+  document.getElementById("btn-migrate").disabled = true;
+  document.getElementById("log").innerHTML = "";
+  log("═══ Starting Migration ═══", "ok");
+
+  const users = oldData.filter(r => r.family_code.startsWith("user_"));
+  const families = oldData.filter(r => !r.family_code.startsWith("user_") && !r.family_code.includes("_templates") && !r.family_code.includes("_users"));
+  const templateSets = oldData.filter(r => r.family_code.endsWith("_templates"));
+  const familyUserSets = oldData.filter(r => r.family_code.endsWith("_users") && !r.family_code.startsWith("user_"));
+
+  // ─── Migrate Users ─────────────────────────────
+  log("", "info");
+  log("── Migrating Users ──", "warn");
+  let userMap = {}; // old username → new id
+  for (const u of users) {
+    const username = u.family_code.replace("user_", "");
+    const d = u.games || {};
+    let pinHash = d.pin || "";
+    if (pinHash && !isHashed(pinHash)) {
+      pinHash = await hashPin(pinHash);
+      log(`  Hashed plain PIN for ${username}`, "warn");
+    }
+    const displayName = d.displayName || username;
+    try {
+      const { data, error } = await sb.from("tally_users").upsert(
+        { username, pin_hash: pinHash, display_name: displayName, created_at: d.createdAt || new Date().toISOString() },
+        { onConflict: "username" }
+      ).select().single();
+      if (error) throw error;
+      userMap[username] = data.id;
+      log(`  ✅ User: ${username} (display: ${displayName}) → id ${data.id}`, "ok");
+    } catch(e) {
+      // May already exist, try to fetch
+      const { data: existing } = await sb.from("tally_users").select("id").eq("username", username).single();
+      if (existing) {
+        userMap[username] = existing.id;
+        log(`  ⏭ User ${username} already exists → id ${existing.id}`, "info");
+      } else {
+        log(`  ❌ User ${username}: ${e.message}`, "err");
+      }
+    }
+  }
+
+  // ─── Migrate Families ──────────────────────────
+  log("", "info");
+  log("── Migrating Families ──", "warn");
+  let familyMap = {}; // old code → new id
+  for (const f of families) {
+    const code = f.family_code;
+    try {
+      const { data, error } = await sb.from("tally_families").upsert(
+        { code, created_at: f.updated_at || new Date().toISOString() },
+        { onConflict: "code" }
+      ).select().single();
+      if (error) throw error;
+      familyMap[code] = data.id;
+      log(`  ✅ Family: ${code} → id ${data.id}`, "ok");
+    } catch(e) {
+      const { data: existing } = await sb.from("tally_families").select("id").eq("code", code).single();
+      if (existing) {
+        familyMap[code] = existing.id;
+        log(`  ⏭ Family ${code} already exists → id ${existing.id}`, "info");
+      } else {
+        log(`  ❌ Family ${code}: ${e.message}`, "err");
+      }
+    }
+  }
+
+  // ─── Migrate Family Members ────────────────────
+  log("", "info");
+  log("── Migrating Family Members ──", "warn");
+  for (const fu of familyUserSets) {
+    const famCode = fu.family_code.replace("_users", "");
+    const familyId = familyMap[famCode];
+    if (!familyId) { log(`  ⏭ Skipping ${fu.family_code} — family not found`, "info"); continue; }
+    const members = fu.games || {};
+    for (const [uid, info] of Object.entries(members)) {
+      const userId = userMap[uid];
+      if (!userId) { log(`  ⏭ Member ${uid} in ${famCode} — user not migrated`, "info"); continue; }
+      const displayName = info.displayName || uid;
+      try {
+        await sb.from("tally_family_members").upsert(
+          { user_id: userId, family_id: familyId, display_name: displayName, role: "member" },
+          { onConflict: "user_id,family_id" }
+        );
+        log(`  ✅ ${uid} → ${famCode} (display: ${displayName})`, "ok");
+      } catch(e) {
+        log(`  ❌ Member ${uid} in ${famCode}: ${e.message}`, "err");
+      }
+    }
+  }
+
+  // ─── Migrate Templates ─────────────────────────
+  log("", "info");
+  log("── Migrating Templates ──", "warn");
+  for (const ts of templateSets) {
+    const famCode = ts.family_code.replace("_templates", "");
+    const familyId = familyMap[famCode];
+    if (!familyId) { log(`  ⏭ Skipping ${ts.family_code} — family not found`, "info"); continue; }
+    const templates = ts.games || {};
+    for (const [key, t] of Object.entries(templates)) {
+      try {
+        await sb.from("tally_templates").upsert({
+          family_id: familyId,
+          template_key: key,
+          name: t.name || t.gameName || key,
+          emoji: t.emoji || "🎲",
+          game_key: t.gameKey || "custom",
+          categories: t.categories || [],
+          scoring_type: t.scoringType || "standard",
+          tier: t.tier || 3,
+          max_score: t.maxScore || null,
+          low_wins: t.lowWins || false,
+        }, { onConflict: "family_id,template_key" });
+        log(`  ✅ Template: ${t.emoji||"🎲"} ${t.name||key} in ${famCode} (tier ${t.tier||3})`, "ok");
+      } catch(e) {
+        log(`  ❌ Template ${key} in ${famCode}: ${e.message}`, "err");
+      }
+    }
+  }
+
+  // ─── Migrate Games ─────────────────────────────
+  log("", "info");
+  log("── Migrating Games ──", "warn");
+  let gameCount = 0;
+  let gameSkipped = 0;
+  for (const f of families) {
+    const famCode = f.family_code;
+    const familyId = familyMap[famCode];
+    if (!familyId) continue;
+    const games = Array.isArray(f.games) ? f.games : [];
+    for (const g of games) {
+      // Check if already migrated by original_id
+      const { data: existing } = await sb.from("tally_games").select("id").eq("original_id", g.id).eq("family_id", familyId).maybeSingle();
+      if (existing) { gameSkipped++; continue; }
+      try {
+        await sb.from("tally_games").insert({
+          original_id: g.id,
+          family_id: familyId,
+          game_name: g.gameName || g.customName || "Game",
+          emoji: g.emoji || "🎲",
+          game_key: g.gameKey || "custom",
+          categories: g.categories || [],
+          players: g.players || [],
+          team_mode: g.teamMode || false,
+          teams: g.teams || null,
+          scoring_type: g.scoringType || "standard",
+          tier: g.tier || 3,
+          max_score: g.maxScore || null,
+          low_wins: g.lowWins || false,
+          finished: g.finished || false,
+          started_at: g.startedAt || null,
+          finished_at: g.finishedAt || null,
+        });
+        gameCount++;
+        if (gameCount % 10 === 0) log(`  ... ${gameCount} games migrated`, "info");
+      } catch(e) {
+        log(`  ❌ Game ${g.id} in ${famCode}: ${e.message}`, "err");
+      }
+    }
+  }
+  log(`  ✅ ${gameCount} games migrated, ${gameSkipped} skipped (already exist)`, "ok");
+
+  // ─── Done ──────────────────────────────────────
+  log("", "info");
+  log("═══ Migration Complete ═══", "ok");
+  log(`Users: ${Object.keys(userMap).length}`, "ok");
+  log(`Families: ${Object.keys(familyMap).length}`, "ok");
+  log(`Games: ${gameCount} new, ${gameSkipped} existing`, "ok");
+  log("", "info");
+  log("Your old family_games table is untouched.", "info");
+  log("Verify the new tables in Supabase Table Editor before switching the app.", "warn");
+
+  document.getElementById("btn-migrate").disabled = false;
+}
+</script>
+</body>
+</html>
