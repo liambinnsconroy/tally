@@ -16,6 +16,21 @@ try {
     sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 } catch(e) {}
 
+// ─── PIN Hashing ─────────────────────────────────
+// Converts plain text PIN to SHA-256 hash
+// Old plain-text PINs are auto-migrated on login
+async function hashPin(pin) {
+  var encoder = new TextEncoder();
+  var data = encoder.encode(pin);
+  var hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash)).map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+}
+
+// Check if a stored PIN is already hashed (64 hex chars = SHA-256)
+function isHashed(pin) {
+  return typeof pin === 'string' && pin.length === 64 && /^[0-9a-f]+$/.test(pin);
+}
+
 async function dbLoad(c) {
   if (!sb) return null;
   try {
