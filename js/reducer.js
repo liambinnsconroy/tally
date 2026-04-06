@@ -136,13 +136,26 @@ function reducer(state, action) {
 
     case "DELETE_HISTORY": {
       var u = state.history.filter(function(g) { return g.id !== action.id; });
-      if (state.family && sb) dbSave(state.family, u).catch(function() {});
+      if (state.family && sb) {
+        if (USE_NEW_DB) {
+          db2.getFamilyByCode(state.family).then(function(fam) {
+            if (fam) db2.deleteGame(fam.id, action.id);
+          });
+        } else {
+          dbSave(state.family, u).catch(function() {});
+        }
+      }
       return Object.assign({}, state, { history: u, screen: "history", detailId: null });
     }
 
     case "DELETE_TEMPLATE": {
       var t = Object.assign({}, state.templates);
       delete t[action.key];
+      if (state.family && sb && USE_NEW_DB) {
+        db2.getFamilyByCode(state.family).then(function(fam) {
+          if (fam) db2.deleteTemplate(fam.id, action.key);
+        });
+      }
       return Object.assign({}, state, { templates: t });
     }
 
