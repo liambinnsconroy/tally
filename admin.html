@@ -125,12 +125,15 @@ function render() {
         <td>${pinStatus}</td>
         <td style="font-size:11px">${fams}</td>
         <td>${d.createdAt ? new Date(d.createdAt).toLocaleDateString() : "—"}</td>
-        <td><button class="small secondary" onclick="editRecord('${u.family_code}')">Edit</button></td>
+        <td><button class="small secondary" onclick="editRecord('${u.family_code}')">Edit</button> <button class="small danger" onclick="resetPinFor('${uid}')">🔑</button></td>
       </tr>`;
     }).join("");
     content = `
       ${statusHtml}
-      <p class="text-muted mb-8">${users.length} registered users</p>
+      <div class="flex-between mb-8">
+        <p class="text-muted">${users.length} registered users</p>
+        <button class="small" onclick="resetPin()">🔑 Reset a PIN</button>
+      </div>
       <table><thead><tr><th>Username</th><th>Display</th><th>PIN</th><th>Families</th><th>Created</th><th></th></tr></thead><tbody>${rows}</tbody></table>
     `;
   }
@@ -252,6 +255,32 @@ function doLogin() {
   } else {
     document.getElementById("login-err").textContent = "Wrong password";
   }
+}
+
+async function resetPin() {
+  const username = prompt("Username to reset:");
+  if (!username) return;
+  const newPin = prompt("New PIN for " + username + " (4+ chars):");
+  if (!newPin || newPin.length < 4) { alert("PIN must be 4+ chars"); return; }
+  const encoder = new TextEncoder();
+  const hash = await crypto.subtle.digest('SHA-256', encoder.encode(newPin));
+  const pinHash = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+  const { error } = await sb.from("tally_users").update({ pin_hash: pinHash }).eq("username", username.trim().toLowerCase());
+  if (error) { alert("Error: " + error.message); return; }
+  status = { ok: true, msg: "✅ PIN reset for " + username };
+  render();
+}
+
+async function resetPinFor(username) {
+  const newPin = prompt("New PIN for " + username + " (4+ chars):");
+  if (!newPin || newPin.length < 4) { alert("PIN must be 4+ chars"); return; }
+  const encoder = new TextEncoder();
+  const hash = await crypto.subtle.digest('SHA-256', encoder.encode(newPin));
+  const pinHash = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+  const { error } = await sb.from("tally_users").update({ pin_hash: pinHash }).eq("username", username.trim().toLowerCase());
+  if (error) { alert("Error: " + error.message); return; }
+  status = { ok: true, msg: "✅ PIN reset for " + username };
+  await refreshData();
 }
 
 async function refreshData() {
