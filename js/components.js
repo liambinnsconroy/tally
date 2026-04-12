@@ -213,8 +213,8 @@ function TimerScreen({ timerProps }) {
 
 /* ═══ Home ═══ */
 function HomeScreen({ state, dispatch }) {
-  const fu = state.familyUsers || {}; const lb = buildLeaderboard(state.history, fu); const maxG = Math.max(...lb.map(p => p.games), 1);
-  const top = [...lb].sort((a, b) => (b.winRate * WIN_WEIGHT + (b.games / maxG) * VOLUME_WEIGHT) - (a.winRate * WIN_WEIGHT + (a.games / maxG) * VOLUME_WEIGHT))[0];
+  const fu = state.familyUsers || {}; const lb = buildLeaderboard(state.history, fu);
+const top = [...lb].sort((a, b) => b.points - a.points)[0];
   const myName = state.user && fu[state.user.userId] ? fu[state.user.userId].displayName : (state.user?.displayName || null);
   return (<div style={{ padding: "20px 20px 80px" }}>
     <h1 style={{ textAlign: "center", fontSize: 34, margin: "24px 0 4px", fontFamily: "Georgia,serif", fontWeight: 900, letterSpacing: -1 }}>🎲 Tally</h1>
@@ -223,7 +223,7 @@ function HomeScreen({ state, dispatch }) {
     {state.family && <p style={{ textAlign: "center", color: C.muted, fontSize: 12, marginBottom: 8 }}>👨‍👩‍👧 <b style={{ color: C.card }}>{state.family}</b></p>}
     {!state.family && <div style={{ ...S.limeCard, padding: "14px 18px", marginBottom: 12, textAlign: "center", cursor: "pointer" }} onClick={() => dispatch({ type: "GO", screen: "family" })}><div style={{ fontSize: 14, fontWeight: 700 }}>👨‍👩‍👧 Join a Family Space to start</div></div>}
     <div style={{ ...S.limeCard, padding: "14px 18px", marginBottom: 12, textAlign: "center", cursor: "pointer" }} onClick={() => dispatch({ type: "GO", screen: "setup" })}><div style={{ fontSize: 28, fontWeight: 900, fontFamily: "Georgia,serif" }}>+ New Game</div><div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>Tap to start playing</div></div>
-    {top && <div style={{ background: C.tomato, border: "2px solid " + C.ink, borderRadius: 14, boxShadow: "3px 3px 0 " + C.ink, padding: "14px 18px", marginBottom: 20, textAlign: "center" }}><div style={{ fontSize: 10, color: "rgba(255,255,255,0.7)", letterSpacing: 2 }}>⭐ TOP PLAYER</div><div style={{ fontSize: 24, fontWeight: 900, fontFamily: "Georgia,serif", color: C.white }}>{top.name}</div><div style={{ fontSize: 12, color: "rgba(255,255,255,0.85)" }}>{Math.round(top.winRate * 100)}% win rate · {top.wins} wins</div></div>}
+    {top && <div style={{ background: C.tomato, border: "2px solid " + C.ink, borderRadius: 14, boxShadow: "3px 3px 0 " + C.ink, padding: "14px 18px", marginBottom: 20, textAlign: "center" }}><div style={{ fontSize: 10, color: "rgba(255,255,255,0.7)", letterSpacing: 2 }}>⭐ TOP PLAYER</div><div style={{ fontSize: 24, fontWeight: 900, fontFamily: "Georgia,serif", color: C.white }}>{top.name}</div><div style={{ fontSize: 12, color: "rgba(255,255,255,0.85)" }}>{top.points} pts · {top.wins} wins</div></div>}
     {state.history.length > 0 && <><h3 style={{ ...secHead, marginTop: 20 }}>Recent Games</h3>{state.history.slice(0, 3).map(g => { const w = getWinner(g); const wName = w?.members ? w.name : rname(w, fu); const wPts = w?.members ? w.total : calcTotal(w); return (<div key={g.id} onClick={() => dispatch({ type: "GO", screen: "historyDetail", id: g.id })} style={{ ...S.card, padding: "14px 16px", marginBottom: 10, cursor: "pointer" }}><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span style={{ fontFamily: "Georgia,serif", fontWeight: 700 }}>{gameEmoji(g)} {gameName(g)}</span><span style={{ color: C.muted, fontSize: 11 }}>{new Date(g.finishedAt || g.startedAt).toLocaleDateString()}</span></div><div style={{ color: C.tomato, fontSize: 13, fontWeight: 700 }}>🏆 {wName} — {wPts} pts</div></div>); })}</>}
   </div>);
 }
