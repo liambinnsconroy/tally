@@ -274,7 +274,10 @@ function ScoredInfoIcon({light}) {
         onMouseLeave={handleLeave}
         style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:18,height:18,borderRadius:9,border:"1.5px solid "+(light?C.white:C.muted),color:light?C.white:C.muted,fontSize:11,fontWeight:900,cursor:"pointer",marginLeft:6,flexShrink:0,fontStyle:"italic",fontFamily:"Georgia,serif",lineHeight:1,verticalAlign:"middle"}}
       >i</span>
-      <ScoredInfoModal open={open} onClose={function(){ setOpen(false); }} />
+      {open && ReactDOM.createPortal(
+        <ScoredInfoModal open={true} onClose={function(){ setOpen(false); }} />,
+        document.body
+      )}
     </>
   );
 }
