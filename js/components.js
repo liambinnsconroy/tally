@@ -404,7 +404,7 @@ function FamilyScreen({state,dispatch}){const fu=state.familyUsers||{};const myD
       const[games,tplRows,members]=await Promise.all([db2.getGames(fam.id),db2.getTemplates(fam.id),db2.getFamilyMembers(fam.id)]);
       if(games.length)dispatch({type:"SYNC_HISTORY",history:games});
       const tplObj={};tplRows.forEach(function(t){tplObj[t.template_key]={gameKey:t.game_key,name:t.name,gameName:t.name,emoji:t.emoji,categories:t.categories,scoringType:t.scoring_type,tier:t.tier,maxScore:t.max_score,lowWins:t.low_wins}});
-      if(Object.keys(tplObj).length)dispatch({type:"SYNC_TEMPLATES",templates:tplObj});
+      dispatch({type:"SYNC_TEMPLATES",templates:tplObj,replace:true});
       const fuMap={};members.forEach(function(m){const uname=m.tally_users?m.tally_users.username:null;if(uname)fuMap[uname]={displayName:m.display_name}});
       dispatch({type:"SET_FAMILY_USERS",familyUsers:fuMap});
     }else{
